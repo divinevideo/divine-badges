@@ -113,10 +113,32 @@
     };
     const oauthConfig = {
       clientId: 'divine-badges',
-      redirectUri: window.location.origin + '/me',
+      redirectUri: (/\.divine\.video$/.test(window.location.hostname)
+        ? 'https://badges.divine.video/me'
+        : window.location.origin + '/me'),
       storage: oauthStorage,
     };
     const sessions = createSessionStore(localStorage, 'dbdg_session');
+
+    // Divine-web shares session info across *.divine.video via a cookie at
+    // domain=.divine.video. When this page is hosted at a Divine subdomain we
+    // can hydrate from it without a single redirect.
+    function readDivineCookie(name) {
+      const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
+      if (!match) return null;
+      try { return JSON.parse(atob(decodeURIComponent(match[1]))); }
+      catch { return null; }
+    }
+    function sharedDivineSession() {
+      if (!/\.divine\.video$/.test(window.location.hostname)) return null;
+      const login = readDivineCookie('nostr_login'); // { type, pubkey, bunkerUri? }
+      const jwt = readDivineCookie('divine_jwt');    // { token, bunkerUrl?, ... }
+      const bunkerUrl = login?.bunkerUri || jwt?.bunkerUrl;
+      if (login?.type === 'bunker' && bunkerUrl) return { type: 'bunker', bunkerUrl };
+      if (login?.type === 'extension') return { type: 'extension' };
+      if (bunkerUrl) return { type: 'bunker', bunkerUrl };
+      return null;
+    }
 
     let signer = null;
     const view = document.getElementById('view');
@@ -392,16 +414,19 @@
           return;
         } catch { sessions.clear(); }
       }
-      // If the user hasn't explicitly logged out and has no local session,
-      // try a silent-ish OAuth bounce. If they're already logged into divine-web
-      // (login.divine.video session cookie), the redirect comes back instantly.
+      // Hydrate from divine-web's cross-subdomain cookie when we're on
+      // *.divine.video — no OAuth bounce, no picker.
       const explicitlyLoggedOut = localStorage.getItem('dbdg_logged_out') === '1';
-      const picker = new URLSearchParams(window.location.search).get('pick') === '1';
-      if (!explicitlyLoggedOut && !picker) {
-        try {
-          window.location.href = await buildOAuthUrl(oauthConfig);
-          return;
-        } catch {}
+      if (!explicitlyLoggedOut) {
+        const shared = sharedDivineSession();
+        if (shared) {
+          try {
+            const s = await restoreSession(shared);
+            sessions.save(shared);
+            await onLogin(s);
+            return;
+          } catch {}
+        }
       }
       renderLogin();
     }
