@@ -1,1 +1,5 @@
 .worktrees/
+target/
+build/
+.wrangler/
+node_modules/

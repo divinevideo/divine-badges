@@ -1,0 +1,30 @@
+[package]
+name = "divine-badges"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+js-sys = "0.3"
+nostr = { version = "0.44.2", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+url = "2"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["ErrorEvent", "MessageEvent", "WebSocket"] }
+worker = { version = "0.6", features = ["d1"] }
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
