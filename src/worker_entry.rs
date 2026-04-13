@@ -21,6 +21,7 @@ mod wasm_entry {
             (Method::Get, "/") => serve_landing_page(env).await,
             (Method::Get, "/healthz") => Response::ok("ok"),
             (Method::Get, "/avatar.png") => serve_avatar(),
+            (Method::Get, "/me") => serve_me(),
             (Method::Get, "/pubkey") => serve_pubkey(env).await,
             (Method::Post, "/admin/publish-profile") => publish_profile(req, env).await,
             _ => Response::error("Not Found", 404),
@@ -73,6 +74,7 @@ mod wasm_entry {
     }
 
     const AVATAR_PNG: &[u8] = include_bytes!("../assets/avatar.png");
+    const ME_PAGE: &str = include_str!("../assets/me.html");
 
     fn serve_avatar() -> worker::Result<Response> {
         let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
@@ -81,6 +83,10 @@ mod wasm_entry {
             .headers_mut()
             .set("cache-control", "public, max-age=86400, immutable")?;
         Ok(response)
+    }
+
+    fn serve_me() -> worker::Result<Response> {
+        Response::from_html(ME_PAGE)
     }
 
     async fn serve_pubkey(env: Env) -> worker::Result<Response> {
