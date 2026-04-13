@@ -1,4 +1,5 @@
 pub mod awards;
+pub mod discord;
 pub mod divine_api;
 pub mod eligibility;
 pub mod error;
