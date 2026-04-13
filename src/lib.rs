@@ -6,6 +6,7 @@ pub mod divine_api;
 pub mod eligibility;
 pub mod error;
 pub mod models;
+pub mod nip19;
 pub mod nostr;
 pub mod period;
 pub mod ports;

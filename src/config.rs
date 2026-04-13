@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::nip19::encode_npub;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -11,12 +12,15 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn creator_link(&self, pubkey: &str) -> String {
-        format!(
-            "{}/{}",
-            self.divine_creator_base_url.trim_end_matches('/'),
-            pubkey
-        )
+    pub fn creator_link(&self, name: &str, pubkey: &str) -> String {
+        let base = self.divine_creator_base_url.trim_end_matches('/');
+        let trimmed_name = name.trim();
+        let identifier = if trimmed_name.is_empty() {
+            encode_npub(pubkey).unwrap_or_else(|_| pubkey.to_string())
+        } else {
+            trimmed_name.to_string()
+        };
+        format!("{base}/{identifier}")
     }
 }
 

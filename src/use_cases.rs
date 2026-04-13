@@ -179,7 +179,7 @@ where
             .mark_awarded(award.slug, &period.key, &award_event_id)
             .await?;
 
-        let creator_link = config.creator_link(&winner.pubkey);
+        let creator_link = config.creator_link(&winner.name, &winner.pubkey);
         let message = build_announcement_message(
             award.badge_name,
             &winner.best_display_name(),
@@ -230,16 +230,17 @@ where
         .winner_pubkey
         .clone()
         .ok_or_else(|| AppError::Discord("missing winner pubkey".into()))?;
-    let winner_name = run
+    let winner_handle = run.winner_name.clone().unwrap_or_default();
+    let winner_display = run
         .winner_display_name
         .clone()
-        .or(run.winner_name.clone())
+        .or_else(|| run.winner_name.clone())
         .unwrap_or_else(|| winner_pubkey.chars().take(8).collect());
     let message = build_announcement_message(
         award.badge_name,
-        &winner_name,
+        &winner_display,
         run.loops.unwrap_or_default(),
-        &config.creator_link(&winner_pubkey),
+        &config.creator_link(&winner_handle, &winner_pubkey),
     );
 
     discord.post_message(&message).await?;
