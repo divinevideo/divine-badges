@@ -65,3 +65,93 @@ pub fn parse_latest_video_response(body: &str) -> Result<Option<CreatorLatestVid
         }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_clients {
+    use async_trait::async_trait;
+    use worker::Fetch;
+
+    use crate::error::AppError;
+    use crate::models::{CreatorLatestVideo, LeaderboardCreator};
+    use crate::ports::{CreatorActivityClient, LeaderboardClient};
+
+    use super::{
+        build_latest_video_url, build_leaderboard_url, parse_latest_video_response,
+        parse_leaderboard_response,
+    };
+
+    #[derive(Debug, Clone)]
+    pub struct WasmLeaderboardClient {
+        base_url: String,
+    }
+
+    impl WasmLeaderboardClient {
+        pub fn new(base_url: String) -> Self {
+            Self { base_url }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl LeaderboardClient for WasmLeaderboardClient {
+        async fn ranked_creators(
+            &self,
+            period: &str,
+            candidate_window: usize,
+        ) -> Result<Vec<LeaderboardCreator>, AppError> {
+            let url = build_leaderboard_url(&self.base_url, period, candidate_window)?;
+            let mut response = Fetch::Url(url)
+                .send()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            if !(200..300).contains(&response.status_code()) {
+                return Err(AppError::Api(format!(
+                    "leaderboard request failed with {}",
+                    response.status_code()
+                )));
+            }
+
+            let body = response
+                .text()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            Ok(parse_leaderboard_response(&body)?.entries)
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct WasmActivityClient {
+        base_url: String,
+    }
+
+    impl WasmActivityClient {
+        pub fn new(base_url: String) -> Self {
+            Self { base_url }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl CreatorActivityClient for WasmActivityClient {
+        async fn latest_video(&self, pubkey: &str) -> Result<Option<CreatorLatestVideo>, AppError> {
+            let url = build_latest_video_url(&self.base_url, pubkey)?;
+            let mut response = Fetch::Url(url)
+                .send()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            if !(200..300).contains(&response.status_code()) {
+                return Err(AppError::Api(format!(
+                    "latest video request failed with {}",
+                    response.status_code()
+                )));
+            }
+
+            let body = response
+                .text()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            parse_latest_video_response(&body)
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use wasm_clients::{WasmActivityClient, WasmLeaderboardClient};

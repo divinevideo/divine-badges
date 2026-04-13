@@ -1,4 +1,6 @@
 pub mod awards;
+pub mod clock;
+pub mod config;
 pub mod discord;
 pub mod divine_api;
 pub mod eligibility;
@@ -7,5 +9,10 @@ pub mod models;
 pub mod nostr;
 pub mod period;
 pub mod ports;
+#[cfg(target_arch = "wasm32")]
+pub mod relay_client;
 pub mod repository;
 pub mod state;
+pub mod use_cases;
+#[cfg(target_arch = "wasm32")]
+pub mod worker_entry;

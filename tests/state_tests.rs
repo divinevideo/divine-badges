@@ -1,7 +1,7 @@
 use divine_badges::state::{
-    AwardRunStatus, next_status_after_award_failure, next_status_after_definition_failure,
+    next_status_after_award_failure, next_status_after_definition_failure,
     next_status_after_discord_failure, next_status_after_fetch_failure,
-    next_status_after_inactive_skip,
+    next_status_after_inactive_skip, AwardRunStatus,
 };
 
 #[test]

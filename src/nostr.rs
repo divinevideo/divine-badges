@@ -1,5 +1,11 @@
+use std::time::SystemTime;
+
+use k256::schnorr::signature::hazmat::PrehashSigner;
+use k256::schnorr::SigningKey;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+
 use crate::awards::AwardDefinition;
-use ::nostr::FromBech32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsignedNostrEvent {
@@ -23,10 +29,11 @@ pub trait RelayPublisher {
     fn publish(&self, event: &SignedNostrEvent) -> Result<String, String>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignedNostrEvent {
     pub id: String,
     pub pubkey: String,
+    pub created_at: i64,
     pub kind: u16,
     pub content: String,
     pub tags: Vec<Vec<String>>,
@@ -75,50 +82,77 @@ pub fn build_badge_award_event(
     }
 }
 
+pub fn build_auth_event(challenge: &str, relay_url: &str) -> UnsignedNostrEvent {
+    UnsignedNostrEvent {
+        kind: 22242,
+        content: String::new(),
+        tags: vec![
+            vec!["relay".into(), relay_url.into()],
+            vec!["challenge".into(), challenge.into()],
+        ],
+    }
+}
+
+#[derive(Clone)]
 pub struct CrateNostrSigner {
-    keys: ::nostr::Keys,
+    signing_key: SigningKey,
 }
 
 impl CrateNostrSigner {
     pub fn from_nsec(nsec: &str) -> Result<Self, String> {
-        let secret_key = ::nostr::SecretKey::from_bech32(nsec).map_err(|err| err.to_string())?;
-        Ok(Self {
-            keys: ::nostr::Keys::new(secret_key),
-        })
+        let (hrp, data) = bech32::decode(nsec).map_err(|err| err.to_string())?;
+        if hrp.to_string() != "nsec" {
+            return Err(format!("expected nsec bech32 key, got {hrp}"));
+        }
+        if data.len() != 32 {
+            return Err("nsec payload must be 32 bytes".into());
+        }
+
+        let signing_key = SigningKey::from_bytes(&data).map_err(|err| err.to_string())?;
+        Ok(Self { signing_key })
     }
 }
 
 impl NostrSigner for CrateNostrSigner {
     fn public_key(&self) -> String {
-        self.keys.public_key().to_string()
+        hex::encode(self.signing_key.verifying_key().to_bytes())
     }
 
     fn sign(&self, event: &UnsignedNostrEvent) -> Result<SignedNostrEvent, String> {
-        let tags = event
-            .tags
-            .iter()
-            .map(|tag| ::nostr::Tag::parse(tag.clone()).map_err(|err| err.to_string()))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let unsigned = ::nostr::EventBuilder::new(
-            ::nostr::Kind::Custom(event.kind),
-            event.content.clone(),
-        )
-            .tags(tags)
-            .sign_with_keys(&self.keys)
+        let created_at = unix_timestamp();
+        let pubkey = self.public_key();
+        let serialized = serde_json::to_string(&serde_json::json!([
+            0,
+            pubkey,
+            created_at,
+            event.kind,
+            event.tags,
+            event.content
+        ]))
+        .map_err(|err| err.to_string())?;
+        let id_bytes = Sha256::digest(serialized.as_bytes());
+        let signature = self
+            .signing_key
+            .sign_prehash(id_bytes.as_slice())
             .map_err(|err| err.to_string())?;
+        let id = hex::encode(id_bytes);
+        let sig = hex::encode(signature.to_bytes());
 
         Ok(SignedNostrEvent {
-            id: unsigned.id.to_hex(),
-            pubkey: unsigned.pubkey.to_string(),
-            kind: unsigned.kind.as_u16(),
-            content: unsigned.content,
-            tags: unsigned
-                .tags
-                .into_iter()
-                .map(|tag| tag.to_vec())
-                .collect::<Vec<_>>(),
-            sig: unsigned.sig.to_string(),
+            id,
+            pubkey,
+            created_at,
+            kind: event.kind,
+            content: event.content.clone(),
+            tags: event.tags.clone(),
+            sig,
         })
     }
+}
+
+fn unix_timestamp() -> i64 {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system clock before unix epoch");
+    now.as_secs() as i64
 }

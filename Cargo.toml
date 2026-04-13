@@ -7,19 +7,24 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+async-trait = "0.1"
 base64 = "0.22"
+bech32 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
 hex = "0.4"
 js-sys = "0.3"
-nostr = { version = "0.44.2", default-features = false, features = ["std"] }
+k256 = { version = "0.13.4", features = ["schnorr"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "1"
 url = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["ErrorEvent", "MessageEvent", "WebSocket"] }
-worker = { version = "0.6", features = ["d1"] }
+web-sys = { version = "0.3", features = ["CloseEvent", "ErrorEvent", "Event", "MessageEvent", "WebSocket"] }
+worker = { version = "0.8", features = ["d1"] }
 
 [dev-dependencies]
 pretty_assertions = "1"

@@ -42,7 +42,9 @@ pub fn closed_periods_for_tick(now: DateTime<Utc>) -> Vec<PeriodTarget> {
     }
 
     if now.day() == 1 {
-        result.push(PeriodTarget::month(&previous_day.format("%Y-%m").to_string()));
+        result.push(PeriodTarget::month(
+            &previous_day.format("%Y-%m").to_string(),
+        ));
     }
 
     result
