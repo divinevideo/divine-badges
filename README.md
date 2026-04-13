@@ -2,6 +2,8 @@
 
 Rust-based Cloudflare Worker for issuing fixed DiVine creator awards.
 
+`GET /` serves a public landing page with recent Diviner award history from D1.
+
 ## Bootstrap
 
 1. Run `npm install`
@@ -38,6 +40,8 @@ Remote migrations:
 ```bash
 npm run d1:migrate:remote
 ```
+
+If you are updating an existing database, make sure migration `0003_winner_nip05.sql` is applied so public profile links can prefer Divine `nip05` handles.
 
 ## Verification
 

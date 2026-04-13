@@ -64,6 +64,23 @@ impl AwardRepository for FakeRepo {
         Ok(run.clone())
     }
 
+    async fn load_recent_completed_runs(
+        &self,
+        award_slug: &str,
+        limit: usize,
+    ) -> Result<Vec<AwardRun>, AppError> {
+        let mut runs = self
+            .runs
+            .borrow()
+            .values()
+            .filter(|run| run.award_slug == award_slug && run.status == AwardRunStatus::Completed)
+            .cloned()
+            .collect::<Vec<_>>();
+        runs.sort_by(|left, right| right.period_key.cmp(&left.period_key));
+        runs.truncate(limit);
+        Ok(runs)
+    }
+
     async fn mark_fetch_failed(
         &self,
         award_slug: &str,
@@ -260,7 +277,7 @@ fn config() -> AppConfig {
         nostr_issuer_nsec: "nsec1example".into(),
         discord_webhook_url: "https://discord.example/webhook".into(),
         divine_badge_image_url: "https://cdn.divine.video/logo.png".into(),
-        divine_creator_base_url: "https://divine.video/u".into(),
+        divine_creator_base_url: "https://divine.video".into(),
     }
 }
 
@@ -269,6 +286,7 @@ fn fake_creator(pubkey: &str, display_name: &str, loops: f64) -> LeaderboardCrea
         pubkey: pubkey.into(),
         display_name: display_name.into(),
         name: display_name.into(),
+        nip05: None,
         picture: String::new(),
         loops,
         views: loops.round() as i64,
@@ -372,6 +390,55 @@ fn inactive_candidates_mark_run_skipped_without_publishing() {
 }
 
 #[test]
+fn winning_run_persists_winner_nip05() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let leaderboard = FakeLeaderboard {
+            creators: vec![LeaderboardCreator {
+                pubkey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+                display_name: "rabble".into(),
+                name: "rabble".into(),
+                nip05: Some("rabble@divine.video".into()),
+                picture: "https://cdn.divine.video/rabble.png".into(),
+                loops: 321.0,
+                views: 321,
+                unique_viewers: 12,
+                videos_with_views: 3,
+            }],
+        };
+        let activity = FakeActivity {
+            latest_by_pubkey: HashMap::from([(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+                Some(CreatorLatestVideo {
+                    published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+                }),
+            )]),
+        };
+        let publisher = FakePublisher::default();
+        let discord = FakeDiscord::default();
+
+        let outcome = run_award_tick(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &config(),
+            &repo,
+            &leaderboard,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs.len(), 1);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(
+            outcome.runs[0].winner_nip05.as_deref(),
+            Some("rabble@divine.video")
+        );
+    });
+}
+
+#[test]
 fn discord_pending_run_retries_only_discord() {
     block_on(async {
         let repo = FakeRepo::default();
@@ -388,6 +455,7 @@ fn discord_pending_run_retries_only_discord() {
         run.status = AwardRunStatus::AwardedDiscordPending;
         run.winner_pubkey = Some("winnerpubkey".into());
         run.winner_display_name = Some("winner".into());
+        run.winner_nip05 = Some("winner@divine.video".into());
         run.loops = Some(136.0);
         run.award_event_id = Some("award-event-id".into());
         repo.upsert_award_run(run).await.unwrap();

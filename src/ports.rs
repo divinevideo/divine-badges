@@ -18,6 +18,11 @@ pub trait AwardRepository {
     async fn save_badge_definition(&self, record: &BadgeDefinitionRecord) -> Result<(), AppError>;
     async fn upsert_award_run(&self, run: AwardRun) -> Result<AwardRun, AppError>;
     async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError>;
+    async fn load_recent_completed_runs(
+        &self,
+        award_slug: &str,
+        limit: usize,
+    ) -> Result<Vec<AwardRun>, AppError>;
     async fn mark_fetch_failed(
         &self,
         award_slug: &str,

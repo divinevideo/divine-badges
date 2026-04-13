@@ -23,6 +23,7 @@ fn display_name_falls_back_to_name_then_short_pubkey() {
         pubkey: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".into(),
         display_name: "".into(),
         name: "ori3".into(),
+        nip05: None,
         picture: "".into(),
         loops: 136.0,
         views: 100,
@@ -51,6 +52,7 @@ fn parse_leaderboard_response_returns_ranked_entries() {
           "pubkey": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
           "display_name": "Ori3",
           "name": "ori3",
+          "nip05": "ori3@divine.video",
           "picture": "",
           "loops": 136.0,
           "views": 100,
@@ -63,5 +65,9 @@ fn parse_leaderboard_response_returns_ranked_entries() {
     let response = parse_leaderboard_response(body).unwrap();
     assert_eq!(response.entries.len(), 1);
     assert_eq!(response.entries[0].best_display_name(), "Ori3");
+    assert_eq!(
+        response.entries[0].nip05.as_deref(),
+        Some("ori3@divine.video")
+    );
     assert_eq!(response.entries[0].loops, 136.0);
 }

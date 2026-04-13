@@ -179,7 +179,7 @@ where
             .mark_awarded(award.slug, &period.key, &award_event_id)
             .await?;
 
-        let creator_link = config.creator_link(&winner.name, &winner.pubkey);
+        let creator_link = config.creator_link(winner.nip05.as_deref(), &winner.pubkey);
         let message = build_announcement_message(
             award.badge_name,
             &winner.best_display_name(),
@@ -207,6 +207,7 @@ fn enrich_run_with_winner(
     run.winner_pubkey = Some(winner.pubkey.clone());
     run.winner_display_name = Some(winner.best_display_name());
     run.winner_name = Some(winner.name.clone());
+    run.winner_nip05 = winner.nip05.clone();
     run.winner_picture = Some(winner.picture.clone());
     run.loops = Some(winner.loops);
     run.views = Some(winner.views);
@@ -230,7 +231,6 @@ where
         .winner_pubkey
         .clone()
         .ok_or_else(|| AppError::Discord("missing winner pubkey".into()))?;
-    let winner_handle = run.winner_name.clone().unwrap_or_default();
     let winner_display = run
         .winner_display_name
         .clone()
@@ -240,7 +240,7 @@ where
         award.badge_name,
         &winner_display,
         run.loops.unwrap_or_default(),
-        &config.creator_link(&winner_handle, &winner_pubkey),
+        &config.creator_link(run.winner_nip05.as_deref(), &winner_pubkey),
     );
 
     discord.post_message(&message).await?;

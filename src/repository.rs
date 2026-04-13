@@ -6,6 +6,10 @@ pub fn save_badge_definition_sql() -> &'static str {
     "UPDATE badge_definitions SET definition_event_id = ?1, definition_coordinate = ?2, published_at = ?3, updated_at = ?4 WHERE award_slug = ?5;"
 }
 
+pub fn recent_completed_runs_sql() -> &'static str {
+    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND status = 'completed' ORDER BY period_key DESC LIMIT ?2"
+}
+
 #[cfg(target_arch = "wasm32")]
 mod d1_repository {
     use async_trait::async_trait;
@@ -44,6 +48,7 @@ mod d1_repository {
         winner_pubkey: Option<String>,
         winner_display_name: Option<String>,
         winner_name: Option<String>,
+        winner_nip05: Option<String>,
         winner_picture: Option<String>,
         loops: Option<f64>,
         views: Option<i64>,
@@ -68,7 +73,7 @@ mod d1_repository {
             let statement = self
                 .db
                 .prepare(
-                    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2",
+                    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2",
                 )
                 .bind(&[JsValue::from_str(award_slug), JsValue::from_str(period_key)])
                 .map_err(repository_error)?;
@@ -149,7 +154,7 @@ mod d1_repository {
             let now = now_string();
             self.db
                 .prepare(
-                    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) ON CONFLICT(award_slug, period_key) DO NOTHING",
+                    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) ON CONFLICT(award_slug, period_key) DO NOTHING",
                 )
                 .bind(&[
                     JsValue::from_str(&run.award_slug),
@@ -158,6 +163,7 @@ mod d1_repository {
                     option_string(&run.winner_pubkey),
                     option_string(&run.winner_display_name),
                     option_string(&run.winner_name),
+                    option_string(&run.winner_nip05),
                     option_string(&run.winner_picture),
                     option_f64(run.loops),
                     option_i64(run.views),
@@ -184,13 +190,14 @@ mod d1_repository {
             let now = now_string();
             self.db
                 .prepare(
-                    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_picture = ?5, loops = ?6, views = ?7, unique_viewers = ?8, videos_with_views = ?9, award_event_id = ?10, discord_message_sent = ?11, status = ?12, error_message = ?13, updated_at = ?14 WHERE award_slug = ?15 AND period_key = ?16",
+                    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, award_event_id = ?11, discord_message_sent = ?12, status = ?13, error_message = ?14, updated_at = ?15 WHERE award_slug = ?16 AND period_key = ?17",
                 )
                 .bind(&[
                     JsValue::from_str(&run.period_type),
                     option_string(&run.winner_pubkey),
                     option_string(&run.winner_display_name),
                     option_string(&run.winner_name),
+                    option_string(&run.winner_nip05),
                     option_string(&run.winner_picture),
                     option_f64(run.loops),
                     option_i64(run.views),
@@ -212,6 +219,28 @@ mod d1_repository {
             self.load_run(&run.award_slug, &run.period_key)
                 .await?
                 .ok_or_else(|| AppError::Repository("missing saved award run".into()))
+        }
+
+        async fn load_recent_completed_runs(
+            &self,
+            award_slug: &str,
+            limit: usize,
+        ) -> Result<Vec<AwardRun>, AppError> {
+            let statement = self
+                .db
+                .prepare(crate::repository::recent_completed_runs_sql())
+                .bind(&[
+                    JsValue::from_str(award_slug),
+                    JsValue::from_f64(limit as f64),
+                ])
+                .map_err(repository_error)?;
+            let rows: Vec<StoredAwardRun> = statement
+                .all()
+                .await
+                .map_err(repository_error)?
+                .results()
+                .map_err(repository_error)?;
+            rows.into_iter().map(TryInto::try_into).collect()
         }
 
         async fn mark_fetch_failed(
@@ -393,6 +422,7 @@ mod d1_repository {
                 winner_pubkey: value.winner_pubkey,
                 winner_display_name: value.winner_display_name,
                 winner_name: value.winner_name,
+                winner_nip05: value.winner_nip05,
                 winner_picture: value.winner_picture,
                 loops: value.loops,
                 views: value.views,

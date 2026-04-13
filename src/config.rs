@@ -12,16 +12,29 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn creator_link(&self, name: &str, pubkey: &str) -> String {
-        let base = self.divine_creator_base_url.trim_end_matches('/');
-        let trimmed_name = name.trim();
-        let identifier = if trimmed_name.is_empty() {
-            encode_npub(pubkey).unwrap_or_else(|_| pubkey.to_string())
-        } else {
-            trimmed_name.to_string()
-        };
-        format!("{base}/{identifier}")
+    pub fn creator_link(&self, nip05: Option<&str>, pubkey: &str) -> String {
+        creator_link_for_base(&self.divine_creator_base_url, nip05, pubkey)
     }
+}
+
+pub fn creator_link_for_base(base_url: &str, nip05: Option<&str>, pubkey: &str) -> String {
+    if let Some(username) = divine_username_from_nip05(nip05) {
+        return format!("https://{username}.divine.video");
+    }
+
+    let base = base_url.trim_end_matches('/');
+    let identifier = encode_npub(pubkey).unwrap_or_else(|_| pubkey.to_string());
+    format!("{base}/{identifier}")
+}
+
+fn divine_username_from_nip05(nip05: Option<&str>) -> Option<String> {
+    let nip05 = nip05?.trim();
+    let (local_part, domain) = nip05.split_once('@')?;
+    let username = local_part.trim();
+    if username.is_empty() || !domain.trim().eq_ignore_ascii_case("divine.video") {
+        return None;
+    }
+    Some(username.to_string())
 }
 
 pub fn validate_base_url(value: &str) -> Result<(), AppError> {
@@ -47,7 +60,7 @@ impl AppConfig {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn binding_string(env: &worker::Env, name: &str) -> worker::Result<String> {
+pub(crate) fn binding_string(env: &worker::Env, name: &str) -> worker::Result<String> {
     env.var(name)
         .map(|value| value.to_string())
         .or_else(|_| env.secret(name).map(|value| value.to_string()))
