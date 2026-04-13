@@ -34,7 +34,7 @@ fn render_page_groups_recent_history_by_award() {
     assert!(html.contains("Diviner of the Week"));
     assert!(html.contains("Diviner of the Month"));
     assert!(html.contains("rabble"));
-    assert!(html.contains("No awards issued yet"));
+    assert!(html.contains("Nothing here yet. Go make some noise."));
     assert!(html.contains("https://rabble.divine.video"));
 }
 
