@@ -1,0 +1,15 @@
+name = "divine-badges"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-04-13"
+
+[build]
+command = "worker-build --release"
+
+[triggers]
+crons = ["5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "divine-badges"
+database_id = "03a9fc2b-698b-48fb-87a5-7a0a615cae91"
+preview_database_id = "03a9fc2b-698b-48fb-87a5-7a0a615cae91"
