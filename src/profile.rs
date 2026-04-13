@@ -14,7 +14,7 @@ pub const DIVINE_BADGES_PROFILE: ProfileMetadata = ProfileMetadata {
     name: "divinebadges",
     display_name: "Divine Badges",
     about: "Diviner of the Day, Week, Month. Badges for the loudest creators on Divine. Every day, every week, every month — no algorithm picks, just loops. https://divine-badges.protestnet.workers.dev",
-    picture: "https://divine.video/og.png",
+    picture: "https://divine-badges.protestnet.workers.dev/avatar.png",
     website: "https://divine-badges.protestnet.workers.dev",
     nip05: Some("badges@divine.video"),
 };
@@ -50,6 +50,9 @@ mod tests {
         assert_eq!(parsed["name"], "divinebadges");
         assert_eq!(parsed["display_name"], "Divine Badges");
         assert_eq!(parsed["nip05"], "badges@divine.video");
-        assert_eq!(parsed["picture"], "https://divine.video/og.png");
+        assert_eq!(
+            parsed["picture"],
+            "https://divine-badges.protestnet.workers.dev/avatar.png"
+        );
     }
 }

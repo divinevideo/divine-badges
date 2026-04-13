@@ -20,6 +20,7 @@ mod wasm_entry {
         match (method, path.as_str()) {
             (Method::Get, "/") => serve_landing_page(env).await,
             (Method::Get, "/healthz") => Response::ok("ok"),
+            (Method::Get, "/avatar.png") => serve_avatar(),
             (Method::Get, "/pubkey") => serve_pubkey(env).await,
             (Method::Post, "/admin/publish-profile") => publish_profile(req, env).await,
             _ => Response::error("Not Found", 404),
@@ -69,6 +70,17 @@ mod wasm_entry {
             Ok(view) => Response::from_html(render_page(&view)),
             Err(_) => Response::error("Internal Server Error", 500),
         }
+    }
+
+    const AVATAR_PNG: &[u8] = include_bytes!("../assets/avatar.png");
+
+    fn serve_avatar() -> worker::Result<Response> {
+        let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
+        response.headers_mut().set("content-type", "image/png")?;
+        response
+            .headers_mut()
+            .set("cache-control", "public, max-age=86400, immutable")?;
+        Ok(response)
     }
 
     async fn serve_pubkey(env: Env) -> worker::Result<Response> {
