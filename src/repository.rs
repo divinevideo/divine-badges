@@ -8,10 +8,8 @@ pub fn save_badge_definition_sql() -> &'static str {
 
 #[cfg(target_arch = "wasm32")]
 mod d1_repository {
-    use std::time::SystemTime;
-
     use async_trait::async_trait;
-    use chrono::{DateTime, Utc};
+    use chrono::Utc;
     use serde::Deserialize;
     use wasm_bindgen::JsValue;
     use worker::D1Database;
@@ -411,7 +409,7 @@ mod d1_repository {
     }
 
     fn now_string() -> String {
-        DateTime::<Utc>::from(SystemTime::now()).to_rfc3339()
+        Utc::now().to_rfc3339()
     }
 
     fn option_string(value: &Option<String>) -> JsValue {

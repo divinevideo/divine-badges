@@ -1,5 +1,3 @@
-use std::time::SystemTime;
-
 use chrono::{DateTime, Utc};
 
 pub trait Clock {
@@ -11,6 +9,6 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> DateTime<Utc> {
-        DateTime::<Utc>::from(SystemTime::now())
+        Utc::now()
     }
 }

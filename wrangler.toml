@@ -6,7 +6,7 @@ compatibility_date = "2026-04-13"
 command = "worker-build --release"
 
 [triggers]
-crons = ["5 * * * *"]
+crons = ["5 0 * * *"]
 
 [vars]
 DIVINE_API_BASE_URL = "https://api.divine.video"

@@ -1,5 +1,4 @@
-use std::time::SystemTime;
-
+use chrono::Utc;
 use k256::schnorr::signature::hazmat::PrehashSigner;
 use k256::schnorr::SigningKey;
 use serde::Serialize;
@@ -151,8 +150,5 @@ impl NostrSigner for CrateNostrSigner {
 }
 
 fn unix_timestamp() -> i64 {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system clock before unix epoch");
-    now.as_secs() as i64
+    Utc::now().timestamp()
 }
