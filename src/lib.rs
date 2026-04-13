@@ -1,5 +1,9 @@
 pub mod awards;
+pub mod divine_api;
+pub mod eligibility;
+pub mod error;
 pub mod models;
 pub mod period;
 pub mod ports;
 pub mod repository;
+pub mod state;
