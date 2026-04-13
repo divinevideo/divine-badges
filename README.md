@@ -1,6 +1,6 @@
 # divine-badges
 
-Rust-based Cloudflare Worker for issuing fixed DiVine creator awards.
+Rust-based Cloudflare Worker for issuing fixed Divine creator awards.
 
 `GET /` serves a public landing page with recent Diviner award history from D1.
 

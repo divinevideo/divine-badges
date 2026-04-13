@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a single Cloudflare Worker that awards three fixed creator badges based on the DiVine creator leaderboard and posts announcement messages to Discord.
+Build a single Cloudflare Worker that awards three fixed creator badges based on the Divine creator leaderboard and posts announcement messages to Discord.
 
 Version 1 includes:
 
@@ -10,7 +10,7 @@ Version 1 includes:
 - `diviner_of_the_week`
 - `diviner_of_the_month`
 
-Each award goes to the top creator for the closed UTC period across all of their videos, using `GET /api/leaderboard/creators` as the source of truth. The worker publishes NIP-58 badge definition and award events to the DiVine relay and stores durable execution state in Cloudflare D1.
+Each award goes to the top creator for the closed UTC period across all of their videos, using `GET /api/leaderboard/creators` as the source of truth. The worker publishes NIP-58 badge definition and award events to the Divine relay and stores durable execution state in Cloudflare D1.
 
 ## Goals
 
@@ -175,9 +175,9 @@ Suggested names:
 
 Suggested descriptions:
 
-- `Awarded to the top DiVine creator of the day across all videos.`
-- `Awarded to the top DiVine creator of the week across all videos.`
-- `Awarded to the top DiVine creator of the month across all videos.`
+- `Awarded to the top Divine creator of the day across all videos.`
+- `Awarded to the top Divine creator of the week across all videos.`
+- `Awarded to the top Divine creator of the month across all videos.`
 
 ## Scheduling and Period Boundaries
 

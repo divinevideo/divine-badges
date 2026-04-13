@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Rust-based Cloudflare Worker that awards `Diviner of the Day`, `Week`, and `Month` badges from the DiVine creator leaderboard to active Divine creators only, stores durable run state in D1, and posts Discord announcements.
+**Goal:** Build a Rust-based Cloudflare Worker that awards `Diviner of the Day`, `Week`, and `Month` badges from the Divine creator leaderboard to active Divine creators only, stores durable run state in D1, and posts Discord announcements.
 
 **Architecture:** The project is split into a native-testable core and a wasm-only Cloudflare adapter. Platform-neutral modules own award rules, period calculation, repository contracts, API response parsing, active-creator eligibility filtering, NIP-58 event construction, and orchestration; the Cloudflare-facing modules are restricted to Worker bindings, D1 adapters, outbound HTTP, and relay WebSocket publishing behind `#[cfg(target_arch = "wasm32")]`. The Worker runs on Cloudflare cron, computes which UTC periods just closed, fetches ranked creators from `api.divine.video`, filters them to creators with at least one video published in the last 30 UTC days, persists and advances award state in D1, ensures the badge definition exists, publishes the award event, and sends one Discord webhook message per completed award.
 
@@ -597,7 +597,7 @@ AwardDefinition {
     slug: "diviner_of_the_day",
     d_tag: "diviner-of-the-day",
     badge_name: "Diviner of the Day",
-    description: "Awarded to the top DiVine creator of the day across all videos.",
+    description: "Awarded to the top Divine creator of the day across all videos.",
 }
 ```
 
