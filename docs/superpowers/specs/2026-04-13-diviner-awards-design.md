@@ -16,6 +16,7 @@ Each award goes to the top creator for the closed UTC period across all of their
 
 - Award one creator badge per closed UTC day, week, and month
 - Use `api.divine.video` for leaderboard lookup
+- Exclude static archive-era Vine accounts and only award active creators
 - Use Nostr events for badge definition and badge award publishing
 - Post one Discord announcement per completed award
 - Make runs idempotent and retryable
@@ -39,6 +40,12 @@ The worker reads winner data from:
 The response includes the creator `pubkey`, `display_name`, `name`, `picture`, `views`, `unique_viewers`, `loops`, and `videos_with_views`.
 
 The worker may also read badge/user state for verification, but REST is not the publishing mechanism.
+
+The worker also reads activity eligibility from:
+
+- `GET /api/users/{pubkey}/videos?sort=published&limit=1`
+
+The response includes `published_at`, which is used to determine whether a creator is currently active on Divine rather than only present via static archived Vine content.
 
 ### Relay Publishing
 
@@ -137,6 +144,21 @@ Version 1 hardcodes three creator awards:
 | `diviner_of_the_week` | `week` | `diviner-of-the-week` |
 | `diviner_of_the_month` | `month` | `diviner-of-the-month` |
 
+### Active Creator Eligibility
+
+Version 1 must not award static archive-era Vine accounts.
+
+A creator is eligible only if they have at least one video whose `published_at` timestamp is within the last 30 UTC days at the time the award period is processed.
+
+Practical rule:
+
+- fetch leaderboard candidates in rank order
+- for each candidate, call `GET /api/users/{pubkey}/videos?sort=published&limit=1`
+- accept the first creator whose latest published video is within the previous 30 UTC days
+- if no ranked creator is active, do not issue an award for that period
+
+This preserves the leaderboard as the ranking source while constraining awards to active Divine creators rather than static imported/archive profiles.
+
 ### Badge Visuals
 
 For v1, all three badge definitions use the current Divine logo as both `image` and `thumb`.
@@ -189,14 +211,15 @@ For each target award period:
 2. Insert or load the `award_runs` row inside D1
 3. If the row is already completed, exit for that period
 4. Fetch `GET /api/leaderboard/creators?period=<period>&limit=1`
-5. If no winner exists, mark the run failed and stop
-6. Store winner snapshot data in `award_runs`
-7. Ensure the badge definition exists in `badge_definitions`
-8. If no definition event has been published yet, publish the kind `30009` event and save its identifiers
-9. Publish the kind `8` award event for the winner
-10. Save the `award_event_id` and move the run to a Discord-pending state
-11. Post the Discord webhook announcement
-12. Mark the run completed
+5. Walk leaderboard candidates until an active creator is found using `GET /api/users/{pubkey}/videos?sort=published&limit=1`
+6. If no eligible winner exists, mark the run as skipped for inactivity and stop
+7. Store winner snapshot data in `award_runs`
+8. Ensure the badge definition exists in `badge_definitions`
+9. If no definition event has been published yet, publish the kind `30009` event and save its identifiers
+10. Publish the kind `8` award event for the winner
+11. Save the `award_event_id` and move the run to a Discord-pending state
+12. Post the Discord webhook announcement
+13. Mark the run completed
 
 ## Nostr Event Strategy
 
@@ -267,6 +290,14 @@ If the leaderboard request fails:
 - keep the row retryable
 - do not attempt badge creation or Discord posting
 
+### Ineligible Leaderboard Winners
+
+If the highest-ranked creators are archive/static accounts and none have a video published within the last 30 UTC days:
+
+- mark the run `skipped_inactive`
+- do not publish a badge definition or award event for that period
+- do not post Discord
+
 ### Badge Definition Failure
 
 If definition publishing fails:
@@ -306,6 +337,7 @@ If the Nostr award succeeds but Discord fails:
 ### Integration Tests
 
 - deserialize leaderboard responses from the Funnel API
+- deserialize user-video responses and activity timestamps from the Funnel API
 - construct valid badge definition and award events
 - format Discord webhook payloads
 
@@ -314,6 +346,7 @@ If the Nostr award succeeds but Discord fails:
 Separate modules should exist for:
 
 - leaderboard API client
+- creator activity eligibility client
 - D1 repository
 - Nostr event construction and relay publishing
 - Discord webhook client
