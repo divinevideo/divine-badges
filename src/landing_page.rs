@@ -101,9 +101,17 @@ pub fn render_page(view: &LandingPageView) -> String {
 
 fn render_section(section: &AwardHistorySection) -> String {
     let (slug_class, eyebrow, deck) = match section.title {
-        "Diviner of the Day" => ("daily", "Daily drop", "Whoever yesterday&rsquo;s loops loved most."),
+        "Diviner of the Day" => (
+            "daily",
+            "Daily drop",
+            "Whoever yesterday&rsquo;s loops loved most.",
+        ),
         "Diviner of the Week" => ("weekly", "Weekly drop", "Seven days of loops. One badge."),
-        "Diviner of the Month" => ("monthly", "Monthly drop", "A month of loud. One human at the top."),
+        "Diviner of the Month" => (
+            "monthly",
+            "Monthly drop",
+            "A month of loud. One human at the top.",
+        ),
         _ => ("custom", "Drop", section.description),
     };
 
