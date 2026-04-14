@@ -1,6 +1,7 @@
 use divine_badges::landing_page::{
     render_page, route_path, AwardHistoryEntry, AwardHistorySection, LandingPageView, PublicRoute,
 };
+use divine_badges::public_routes::{classify_public_route, PublicAppAsset, PublicRouteMatch};
 
 #[test]
 fn render_page_groups_recent_history_by_award() {
@@ -43,4 +44,12 @@ fn route_path_maps_root_health_and_unknown_paths() {
     assert_eq!(route_path("/"), PublicRoute::LandingPage);
     assert_eq!(route_path("/healthz"), PublicRoute::Health);
     assert_eq!(route_path("/missing"), PublicRoute::NotFound);
+}
+
+#[test]
+fn classify_public_route_matches_shared_app_assets() {
+    assert_eq!(
+        classify_public_route("/app/boot.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::BootJs)
+    );
 }

@@ -9,6 +9,7 @@ mod wasm_entry {
     use crate::landing_page::{build_view, render_page};
     use crate::nip19::encode_npub;
     use crate::profile::{build_profile_event, DIVINE_BADGES_PROFILE};
+    use crate::public_routes::{classify_public_route, PublicAppAsset, PublicRouteMatch};
     use crate::relay_client::WasmRelayClient;
     use crate::repository::D1AwardRepository;
     use crate::use_cases::run_award_tick;
@@ -17,13 +18,16 @@ mod wasm_entry {
     pub async fn fetch(req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
         let method = req.method();
         let path = req.path();
-        match (method, path.as_str()) {
-            (Method::Get, "/") => serve_landing_page(env).await,
-            (Method::Get, "/healthz") => Response::ok("ok"),
-            (Method::Get, "/avatar.png") => serve_avatar(),
-            (Method::Get, "/me") => serve_me(),
-            (Method::Get, "/pubkey") => serve_pubkey(env).await,
-            (Method::Post, "/admin/publish-profile") => publish_profile(req, env).await,
+        match (method, classify_public_route(path.as_str())) {
+            (Method::Get, PublicRouteMatch::LandingPage) => serve_landing_page(env).await,
+            (Method::Get, PublicRouteMatch::Health) => Response::ok("ok"),
+            (Method::Get, PublicRouteMatch::Avatar) => serve_avatar(),
+            (Method::Get, PublicRouteMatch::MePage) => serve_me(),
+            (Method::Get, PublicRouteMatch::IssuerPubkey) => serve_pubkey(env).await,
+            (Method::Get, PublicRouteMatch::AppAsset(asset)) => serve_app_asset(asset),
+            (Method::Post, _) if path == "/admin/publish-profile" => {
+                publish_profile(req, env).await
+            }
             _ => Response::error("Not Found", 404),
         }
     }
@@ -75,6 +79,12 @@ mod wasm_entry {
 
     const AVATAR_PNG: &[u8] = include_bytes!("../assets/avatar.png");
     const ME_PAGE: &str = include_str!("../assets/me.html");
+    const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
+    const APP_AUTH_SESSION_JS: &str = include_str!("../assets/app/auth/session.js");
+    const APP_NOSTR_CONSTANTS_JS: &str = include_str!("../assets/app/nostr/constants.js");
+    const APP_NOSTR_RELAY_JS: &str = include_str!("../assets/app/nostr/relay.js");
+    const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
+    const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
 
     fn serve_avatar() -> worker::Result<Response> {
         let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
@@ -87,6 +97,25 @@ mod wasm_entry {
 
     fn serve_me() -> worker::Result<Response> {
         Response::from_html(ME_PAGE)
+    }
+
+    fn serve_app_asset(asset: PublicAppAsset) -> worker::Result<Response> {
+        let source = match asset {
+            PublicAppAsset::BootJs => APP_BOOT_JS,
+            PublicAppAsset::AuthSessionJs => APP_AUTH_SESSION_JS,
+            PublicAppAsset::NostrConstantsJs => APP_NOSTR_CONSTANTS_JS,
+            PublicAppAsset::NostrRelayJs => APP_NOSTR_RELAY_JS,
+            PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,
+            PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
+        };
+        let mut response = Response::ok(source)?;
+        response
+            .headers_mut()
+            .set("content-type", "application/javascript; charset=utf-8")?;
+        response
+            .headers_mut()
+            .set("cache-control", "public, max-age=300")?;
+        Ok(response)
     }
 
     async fn serve_pubkey(env: Env) -> worker::Result<Response> {
