@@ -1,6 +1,7 @@
 use divine_badges::landing_page::{
     render_page, route_path, AwardHistoryEntry, AwardHistorySection, LandingPageView, PublicRoute,
 };
+use divine_badges::public_routes::{classify_public_route, PublicAppAsset, PublicRouteMatch};
 
 #[test]
 fn render_page_groups_recent_history_by_award() {
@@ -34,7 +35,7 @@ fn render_page_groups_recent_history_by_award() {
     assert!(html.contains("Diviner of the Week"));
     assert!(html.contains("Diviner of the Month"));
     assert!(html.contains("rabble"));
-    assert!(html.contains("No awards issued yet"));
+    assert!(html.contains("Nothing here yet. Go make some noise."));
     assert!(html.contains("https://rabble.divine.video"));
 }
 
@@ -43,4 +44,25 @@ fn route_path_maps_root_health_and_unknown_paths() {
     assert_eq!(route_path("/"), PublicRoute::LandingPage);
     assert_eq!(route_path("/healthz"), PublicRoute::Health);
     assert_eq!(route_path("/missing"), PublicRoute::NotFound);
+}
+
+#[test]
+fn classify_public_route_matches_shared_app_assets() {
+    assert_eq!(
+        classify_public_route("/app/boot.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::BootJs)
+    );
+    assert_eq!(
+        classify_public_route("/app/auth/profile.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs)
+    );
+    assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
+    assert_eq!(
+        classify_public_route("/p/npub1example"),
+        PublicRouteMatch::ProfilePage
+    );
+    assert_eq!(
+        classify_public_route("/b/naddr1example"),
+        PublicRouteMatch::BadgePage
+    );
 }

@@ -14,7 +14,7 @@ mod wasm_client {
     use crate::error::AppError;
     use crate::nostr::{
         build_auth_event, build_badge_award_event, build_badge_definition_event, CrateNostrSigner,
-        DefinitionPublishResult, NostrSigner, SignedNostrEvent,
+        DefinitionPublishResult, NostrSigner, SignedNostrEvent, UnsignedNostrEvent,
     };
     use crate::ports::BadgePublisher;
 
@@ -27,6 +27,19 @@ mod wasm_client {
         pub fn new(relay_url: String, nsec: &str) -> Result<Self, AppError> {
             let signer = CrateNostrSigner::from_nsec(nsec).map_err(AppError::Relay)?;
             Ok(Self { relay_url, signer })
+        }
+
+        pub fn public_key(&self) -> String {
+            self.signer.public_key()
+        }
+
+        pub async fn publish_unsigned(
+            &self,
+            event: UnsignedNostrEvent,
+        ) -> Result<SignedNostrEvent, AppError> {
+            let signed = self.signer.sign(&event).map_err(AppError::Relay)?;
+            self.publish_signed_event(signed.clone()).await?;
+            Ok(signed)
         }
 
         async fn publish_signed_event(&self, event: SignedNostrEvent) -> Result<String, AppError> {

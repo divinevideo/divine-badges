@@ -1,5 +1,6 @@
 {
   "private": true,
+  "type": "module",
   "scripts": {
     "check": "cargo fmt --check && cargo test --lib --tests",
     "check:wasm": "cargo check --target wasm32-unknown-unknown",

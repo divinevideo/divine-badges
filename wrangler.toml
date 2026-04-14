@@ -2,6 +2,10 @@ name = "divine-badges"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-04-13"
 
+routes = [
+  { pattern = "badges.divine.video/*", zone_name = "divine.video" }
+]
+
 [build]
 command = "worker-build --release"
 

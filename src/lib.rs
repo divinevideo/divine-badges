@@ -11,6 +11,8 @@ pub mod nip19;
 pub mod nostr;
 pub mod period;
 pub mod ports;
+pub mod profile;
+pub mod public_routes;
 #[cfg(target_arch = "wasm32")]
 pub mod relay_client;
 pub mod repository;

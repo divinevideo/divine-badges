@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>My Diviner Badges · Divine</title>
+  <meta name="description" content="Log in and pin your Diviner of the Day, Week, and Month badges to your Nostr profile.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root{--green:#27C58B;--dark:#07241B;--mint:#D0FBCB;--off:#F9F7F6;--yellow:#FFF140;--pink:#FF7FAF;--orange:#FF7640;--violet:#A3A9FF;color-scheme:dark}
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{background:var(--dark);color:var(--off);font-family:'Inter',system-ui,sans-serif;font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased}
+    h1,h2,h3{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:800;letter-spacing:-.02em;line-height:.95}
+    a{color:inherit;text-decoration:none}
+    .shell{max-width:960px;margin:0 auto;padding:0 clamp(20px,4vw,32px)}
+    .topbar{display:flex;justify-content:space-between;align-items:center;padding:24px 0;gap:16px;flex-wrap:wrap}
+    .brand{display:inline-flex;align-items:center;gap:12px;color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.3rem}
+    .logomark{width:26px;height:26px;border-radius:50%;background:var(--green);border:2px solid var(--off);position:relative;display:inline-block}
+    .logomark::after{content:"";position:absolute;inset:5px;background:var(--dark);border-radius:50%}
+    .nav-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+    .back{font-size:.88rem;color:var(--mint);border-bottom:1.5px solid rgba(208,251,203,.4);padding-bottom:1px}
+    .back:hover{color:var(--green);border-bottom-color:var(--green)}
+    .auth-chip{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:8px 14px;border-radius:999px;border:2px solid rgba(208,251,203,.22);background:rgba(208,251,203,.04);color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;line-height:1;cursor:pointer}
+    .auth-chip:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
+    .auth-chip:disabled{cursor:wait;opacity:.8}
+    .auth-chip .avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--green);color:var(--dark);border:1.5px solid rgba(7,36,27,.8);font-size:.92rem;font-weight:800;flex-shrink:0}
+    .auth-chip .avatar img{width:100%;height:100%;object-fit:cover;display:block}
+    .auth-chip .name{max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .auth-chip.logged-out{background:transparent;color:var(--mint)}
+    .auth-chip.logged-in{background:var(--off);color:var(--dark);border-color:var(--off)}
+    .auth-chip.logged-in:hover:not(:disabled){box-shadow:4px 4px 0 var(--yellow)}
+    .hero{padding:32px 0 24px}
+    .hero h1{font-size:clamp(2.2rem,6vw,3.8rem);color:var(--off);max-width:16ch}
+    .hero h1 .punct{color:var(--green)}
+    .lede{max-width:58ch;margin-top:18px;color:var(--mint);font-size:1.05rem;line-height:1.5}
+    .card{background:var(--off);color:var(--dark);border:2px solid var(--dark);border-radius:22px;padding:22px;box-shadow:6px 6px 0 var(--green);margin-bottom:14px}
+    .card h2{font-size:1.25rem;margin-bottom:6px}
+    .card p{color:rgba(7,36,27,.72);font-size:.95rem;line-height:1.5}
+    .card code{background:rgba(7,36,27,.08);padding:1px 6px;border-radius:6px;font-size:.88em}
+    .row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+    input{flex:1 1 260px;padding:10px 14px;border:2px solid var(--dark);border-radius:14px;font-family:'Inter',sans-serif;font-size:1rem;background:var(--off);color:var(--dark);min-width:0}
+    input:focus{outline:none;box-shadow:3px 3px 0 var(--green)}
+    button{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:1rem;padding:10px 18px;background:var(--dark);color:var(--mint);border:2px solid var(--dark);border-radius:14px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease}
+    button:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
+    button.primary{background:var(--green);color:var(--dark)}
+    button.primary:hover:not(:disabled){box-shadow:4px 4px 0 var(--dark)}
+    button.secondary{background:var(--off);color:var(--dark)}
+    button.danger{background:var(--pink);color:var(--dark)}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .tabs{display:grid;gap:16px}
+    .tab-buttons{display:flex;gap:10px;flex-wrap:wrap}
+    .tab-button{background:transparent;color:var(--mint);border:2px solid rgba(208,251,203,.25)}
+    .tab-button.active{background:var(--green);color:var(--dark);border-color:var(--green)}
+    .tab-panel{display:grid;gap:14px}
+    .badges{list-style:none;display:grid;gap:14px;margin-top:22px}
+    .badge{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;padding:20px 24px;background:var(--off);color:var(--dark);border:2px solid var(--dark);border-radius:22px;box-shadow:6px 6px 0 var(--green)}
+    .badge.day{box-shadow:6px 6px 0 var(--green)}
+    .badge.week{box-shadow:6px 6px 0 var(--pink)}
+    .badge.month{box-shadow:6px 6px 0 var(--violet)}
+    .badge.accepted{background:var(--mint)}
+    .badge.accepted.day{box-shadow:6px 6px 0 var(--yellow)}
+    .badge.accepted.week{background:var(--yellow);box-shadow:6px 6px 0 var(--orange)}
+    .badge.accepted.month{background:var(--pink);box-shadow:6px 6px 0 var(--violet)}
+    .badge .med{width:64px;height:64px;border-radius:50%;border:2px solid var(--dark);display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.45rem;color:var(--dark);flex-shrink:0}
+    .badge.day .med{background:var(--green)}
+    .badge.week .med{background:var(--yellow)}
+    .badge.month .med{background:var(--pink)}
+    .badge .info{display:grid;gap:4px}
+    .badge .info .name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.4rem;line-height:1.1}
+    .badge .info .period{font-size:.88rem;opacity:.65;margin-top:4px;font-variant-numeric:tabular-nums}
+    .badge .info .issuer,.badge .info .description{font-size:.9rem;line-height:1.45;opacity:.72}
+    .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .empty{padding:48px 28px;text-align:center;border:2px dashed rgba(208,251,203,.35);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.1rem}
+    .status{margin-top:14px;padding:12px 16px;border-radius:14px;font-size:.92rem;line-height:1.4}
+    .status.ok{background:rgba(39,197,139,.12);color:var(--green);border:1px solid rgba(39,197,139,.4)}
+    .status.err{background:rgba(255,127,175,.14);color:var(--pink);border:1px solid rgba(255,127,175,.5)}
+    .status.info{background:rgba(208,251,203,.08);color:var(--mint);border:1px solid rgba(208,251,203,.25)}
+    .foot{padding:56px 0 40px;color:var(--mint);font-size:.95rem;border-top:2px solid rgba(208,251,203,.14);margin-top:48px}
+    .foot a{color:var(--off);border-bottom:1.5px solid rgba(249,247,246,.35);padding-bottom:1px}
+    .foot a:hover{color:var(--green);border-bottom-color:var(--green)}
+    @media (max-width:640px){
+      .badge{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:10px}
+      .badge .actions{grid-column:1/-1}
+      .nav-actions{width:100%;justify-content:space-between}
+      .auth-chip .name{max-width:12ch}
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="topbar">
+      <a class="brand" href="/"><span class="logomark" aria-hidden="true"></span><span>Divine Badges</span></a>
+      <div class="nav-actions">
+        <a class="back" href="/">← All winners</a>
+        <button class="auth-chip logged-out" id="auth-chip" type="button">Log in</button>
+      </div>
+    </nav>
+    <section class="hero">
+      <h1>Your Diviner badges<span class="punct">.</span></h1>
+      <p class="lede">Log in with your Nostr identity to see any Diviner of the Day, Week, or Month badges we've handed you. Pin the ones you want to your profile so everyone else can see them too.</p>
+    </section>
+    <section id="view"></section>
+    <footer class="foot">
+      <p>Built at <a href="https://divine.video">divine.video</a>. Open source. Own what you make.</p>
+    </footer>
+  </main>
+  <script type="module">
+    import { mountMePage } from "/app/views/me.js?v=2026-04-14-3";
+
+    mountMePage();
+  </script>
+</body>
+</html>
