@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Badge Profile · Divine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root{--green:#27C58B;--dark:#07241B;--mint:#D0FBCB;--off:#F9F7F6;--yellow:#FFF140;--pink:#FF7FAF;--orange:#FF7640;--violet:#A3A9FF;color-scheme:dark}
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{background:
+      radial-gradient(circle at 112% 16%, rgba(39,197,139,.28), transparent 22%),
+      radial-gradient(circle at -8% 76%, rgba(255,118,64,.15), transparent 22%),
+      linear-gradient(180deg, #08241b 0%, #0b2a1e 100%);
+      color:var(--off);font-family:'Inter',system-ui,sans-serif;font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh}
+    a{color:inherit;text-decoration:none}
+    .shell{max-width:1120px;margin:0 auto;padding:0 clamp(20px,4vw,40px)}
+    .topbar{display:flex;justify-content:space-between;align-items:center;padding:24px 0;gap:16px;flex-wrap:wrap}
+    .brand{display:inline-flex;align-items:center;gap:12px;color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.3rem}
+    .logomark{width:26px;height:26px;border-radius:50%;background:var(--green);border:2px solid var(--off);position:relative;display:inline-block}
+    .logomark::after{content:"";position:absolute;inset:5px;background:var(--dark);border-radius:50%}
+    .nav-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+    .back{font-size:.88rem;color:var(--mint);border-bottom:1.5px solid rgba(208,251,203,.4);padding-bottom:1px}
+    .hero{padding:32px 0 24px}
+    .hero h1{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:800;font-size:clamp(2.8rem,7vw,4.8rem);letter-spacing:-.04em;line-height:.92}
+    .hero h1 .punct{color:var(--green)}
+    .lede{max-width:58ch;margin-top:16px;color:var(--mint);font-size:1.05rem;line-height:1.5}
+    .auth-chip{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:8px 14px;border-radius:999px;border:2px solid rgba(208,251,203,.22);background:rgba(208,251,203,.04);color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;line-height:1;cursor:pointer}
+    .auth-chip .avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--green);color:var(--dark);border:1.5px solid rgba(7,36,27,.8);font-size:.92rem;font-weight:800;flex-shrink:0}
+    .auth-chip .avatar img{width:100%;height:100%;object-fit:cover;display:block}
+    .auth-chip .name{max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .auth-chip:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
+    .profile-hero{display:grid;gap:20px;padding:28px;border-radius:28px;background:linear-gradient(135deg, rgba(249,247,246,.98), rgba(239,255,245,.95));color:var(--dark);border:2px solid rgba(7,36,27,.88);box-shadow:10px 10px 0 rgba(39,197,139,.78)}
+    .identity-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:center}
+    .profile-avatar{width:92px;height:92px;border-radius:28px;overflow:hidden;display:grid;place-items:center;background:var(--green);border:2px solid rgba(7,36,27,.88);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:2rem;color:var(--dark)}
+    .profile-avatar img{width:100%;height:100%;object-fit:cover}
+    .profile-kicker{display:inline-flex;align-items:center;gap:8px;font-family:'Bricolage Grotesque',sans-serif;font-size:.92rem;font-weight:700;color:rgba(7,36,27,.62)}
+    .profile-kicker::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--green)}
+    .profile-name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:clamp(2rem,5vw,3.2rem);letter-spacing:-.04em;line-height:.9;margin-top:6px}
+    .profile-sub{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;color:rgba(7,36,27,.72);font-size:.96rem}
+    .profile-bio{max-width:54ch;color:rgba(7,36,27,.82);font-size:1rem}
+    .stats-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+    .stat-card{padding:14px 16px;border-radius:18px;background:rgba(7,36,27,.06);display:grid;gap:4px}
+    .stat-label{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.9rem;color:rgba(7,36,27,.6)}
+    .stat-value{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.35rem;line-height:1}
+    .tabs{display:grid;gap:16px;margin-top:20px}
+    .tab-buttons{display:flex;gap:10px;flex-wrap:wrap}
+    .tab-button{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:1rem;padding:10px 18px;background:transparent;color:var(--mint);border:2px solid rgba(208,251,203,.25);border-radius:14px;cursor:pointer}
+    .tab-button.active{background:var(--green);color:var(--dark);border-color:var(--green)}
+    .tab-panel{display:grid;gap:14px}
+    .badges{list-style:none;display:grid;gap:14px}
+    .badge{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;padding:20px 24px;background:var(--off);color:var(--dark);border:2px solid rgba(7,36,27,.88);border-radius:22px;box-shadow:6px 6px 0 rgba(39,197,139,.55)}
+    .badge .med{width:64px;height:64px;border-radius:50%;border:2px solid rgba(7,36,27,.88);display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.45rem;color:var(--dark);background:var(--green)}
+    .badge .info{display:grid;gap:4px}
+    .badge .info .name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.4rem;line-height:1.05}
+    .badge .info .period,.badge .info .issuer,.badge .info .description{font-size:.92rem;opacity:.72}
+    .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .badge button{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;padding:10px 16px;border-radius:12px;border:2px solid rgba(7,36,27,.88);cursor:pointer}
+    .badge button[data-action="accept"]{background:var(--green);color:var(--dark)}
+    .badge button[data-action="hide"]{background:var(--off);color:var(--dark)}
+    .empty{padding:48px 28px;text-align:center;border:2px dashed rgba(208,251,203,.28);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.08rem}
+    .status{margin-top:14px;padding:12px 16px;font-size:.92rem;line-height:1.4;border-radius:14px}
+    .status.err{background:rgba(255,127,175,.14);color:var(--pink);border:1px solid rgba(255,127,175,.5)}
+    .status.info{background:rgba(208,251,203,.08);color:var(--mint);border:1px solid rgba(208,251,203,.25)}
+    .foot{padding:56px 0 40px;color:var(--mint);font-size:.95rem;border-top:2px solid rgba(208,251,203,.14);margin-top:48px}
+    @media (max-width:900px){
+      .stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    }
+    @media (max-width:640px){
+      .identity-row{grid-template-columns:1fr}
+      .profile-avatar{width:80px;height:80px}
+      .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .badge{grid-template-columns:auto 1fr}
+      .badge .actions{grid-column:1/-1}
+      .nav-actions{width:100%;justify-content:space-between}
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="topbar">
+      <a class="brand" href="/"><span class="logomark" aria-hidden="true"></span><span>Divine Badges</span></a>
+      <div class="nav-actions">
+        <a class="back" href="/">← All winners</a>
+        <button class="auth-chip" id="auth-chip" type="button">Log in</button>
+      </div>
+    </nav>
+    <section class="hero">
+      <h1>Badge profile<span class="punct">.</span></h1>
+      <p class="lede">Public badge history for a Nostr creator, with accepted, awarded, and created tabs.</p>
+    </section>
+    <section id="view"></section>
+    <footer class="foot">
+      <p>Built at <a href="https://divine.video">divine.video</a>. Open source. Own what you make.</p>
+    </footer>
+  </main>
+  <script type="module">
+    import { mountProfilePage } from "/app/views/profile.js?v=2026-04-14-4";
+
+    mountProfilePage();
+  </script>
+</body>
+</html>

@@ -41,3 +41,7 @@ export function clearStatus() {
 export function renderEmptyState(root, message) {
   root.innerHTML = `<div class="empty">${esc(message)}</div>`;
 }
+
+export function replaceWithEmptyState(element, message) {
+  element.outerHTML = `<div class="empty">${esc(message)}</div>`;
+}

@@ -52,4 +52,17 @@ fn classify_public_route_matches_shared_app_assets() {
         classify_public_route("/app/boot.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::BootJs)
     );
+    assert_eq!(
+        classify_public_route("/app/auth/profile.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs)
+    );
+    assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
+    assert_eq!(
+        classify_public_route("/p/npub1example"),
+        PublicRouteMatch::ProfilePage
+    );
+    assert_eq!(
+        classify_public_route("/b/naddr1example"),
+        PublicRouteMatch::BadgePage
+    );
 }

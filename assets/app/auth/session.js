@@ -31,8 +31,8 @@ const oauthStorage = {
 const oauthConfig = {
   clientId: "divine-badges",
   redirectUri: /\.divine\.video$/.test(window.location.hostname)
-    ? "https://badges.divine.video/me"
-    : `${window.location.origin}/me`,
+    ? `https://badges.divine.video${window.location.pathname}`
+    : `${window.location.origin}${window.location.pathname}`,
   storage: oauthStorage,
 };
 

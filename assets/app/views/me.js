@@ -1,5 +1,15 @@
-import { DIVINE_RELAY } from "/app/nostr/constants.js";
-import { newestFirst, relayPublish, relayQuery } from "/app/nostr/relay.js";
+import {
+  BADGE_AWARD,
+  BADGE_DEFINITION,
+  DIVINE_RELAY,
+  PROFILE_BADGES,
+  PROFILE_BADGES_D,
+} from "/app/nostr/constants.js?v=2026-04-14-3";
+import {
+  newestFirst,
+  relayPublish,
+  relayQuery,
+} from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
   beginDivineOAuth,
   bootstrapSession,
@@ -8,17 +18,26 @@ import {
   loginWithExtension,
   loginWithNsec,
   markSessionActive,
-} from "/app/auth/session.js";
+} from "/app/auth/session.js?v=2026-04-14-3";
+import { buildNavProfile, loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
+import {
+  buildAcceptedBadgeRecords,
+  buildAcceptProfileBadgesEvent,
+  buildAwardedBadgeRecords,
+  buildHideProfileBadgesEvent,
+  coordinateFromBadgeDefinition,
+  extractProfileBadgePairs,
+  findTag,
+} from "/app/nostr/badges.js?v=2026-04-14-3";
 import {
   clearStatus,
   esc,
-  renderEmptyState,
   replaceView,
   shorten,
   showStatus,
-} from "/app/views/common.js";
+} from "/app/views/common.js?v=2026-04-14-3";
 
-const ISSUER = "e21369e63b98f58de8aa171ec9794006eb0118891ae70895106d44525b718d2b";
+const DIVINE_API_BASE = "https://api.divine.video";
 const BADGE_META = {
   "diviner-of-the-day": { name: "Diviner of the Day", emoji: "D", variant: "day" },
   "diviner-of-the-week": { name: "Diviner of the Week", emoji: "W", variant: "week" },
@@ -39,7 +58,52 @@ function getView() {
   return view;
 }
 
+function getAuthChip() {
+  const button = document.getElementById("auth-chip");
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("missing #auth-chip");
+  }
+  return button;
+}
+
+async function beginPrimaryLogin() {
+  window.location.href = await beginDivineOAuth();
+}
+
+function renderAuthChipLoggedOut() {
+  const chip = getAuthChip();
+  chip.className = "auth-chip logged-out";
+  chip.disabled = false;
+  chip.innerHTML = '<span class="name">Log in</span>';
+  chip.onclick = async () => {
+    try {
+      await beginPrimaryLogin();
+    } catch (error) {
+      showStatus(getView(), "err", `OAuth error: ${error.message || error}`);
+    }
+  };
+}
+
+function renderAuthChipProfile(profile, isLoading = false) {
+  const chip = getAuthChip();
+  chip.className = "auth-chip logged-in";
+  chip.disabled = isLoading;
+  const avatar = profile.avatarUrl
+    ? `<span class="avatar"><img src="${esc(profile.avatarUrl)}" alt=""></span>`
+    : `<span class="avatar">${esc(profile.initials)}</span>`;
+  chip.innerHTML = `${avatar}<span class="name">${esc(profile.displayName)}</span>`;
+  chip.title = "Log out";
+  chip.onclick = () => {
+    signer = null;
+    clearStoredSession();
+    renderAuthChipLoggedOut();
+    renderLogin(getView());
+    clearStatus();
+  };
+}
+
 function renderLogin(root) {
+  renderAuthChipLoggedOut();
   replaceView(
     root,
     `
@@ -74,7 +138,7 @@ function renderLogin(root) {
 
   document.getElementById("oauth-btn").onclick = async () => {
     try {
-      window.location.href = await beginDivineOAuth();
+      await beginPrimaryLogin();
     } catch (error) {
       showStatus(root, "err", `OAuth error: ${error.message || error}`);
     }
@@ -120,24 +184,10 @@ function renderLoaded(root, pubkey) {
   replaceView(
     root,
     `
-      <div class="you">
-        <div class="avatar">${esc(pubkey.charAt(0).toUpperCase())}</div>
-        <div class="who">
-          <strong>Logged in</strong>
-          <code>${esc(shorten(pubkey))}</code>
-        </div>
-        <span class="spacer"></span>
-        <button class="danger" id="logout-btn">Log out</button>
-      </div>
       <p id="status" class="status info">Looking up your badges on the Divine relay…</p>
-      <ul class="badges" id="badges"></ul>
+      <div id="badges"></div>
     `
   );
-  document.getElementById("logout-btn").onclick = () => {
-    signer = null;
-    clearStoredSession();
-    renderLogin(root);
-  };
 }
 
 async function onLogin(nextSigner) {
@@ -145,147 +195,239 @@ async function onLogin(nextSigner) {
   markSessionActive();
   const pubkey = await signer.getPublicKey();
   const root = getView();
+  renderAuthChipProfile(
+    buildNavProfile({
+      pubkey,
+      payload: null,
+    }),
+    true
+  );
   renderLoaded(root, pubkey);
+  renderAuthChipProfile(await loadDivineProfile(pubkey, DIVINE_API_BASE));
   await loadBadges(pubkey);
 }
 
 async function loadBadges(pubkey) {
   const root = getView();
   try {
-    const [awards, profileBadges] = await Promise.all([
-      relayQuery(DIVINE_RELAY, [{ kinds: [8], authors: [ISSUER], "#p": [pubkey] }]),
+    const [awardEvents, profileBadges, createdBadges] = await Promise.all([
+      relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
       relayQuery(DIVINE_RELAY, [
-        { kinds: [30008], authors: [pubkey], "#d": ["profile_badges"], limit: 1 },
+        {
+          kinds: [PROFILE_BADGES],
+          authors: [pubkey],
+          "#d": [PROFILE_BADGES_D],
+          limit: 1,
+        },
       ]),
+      relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
     ]);
     const profileEvent = newestFirst(profileBadges)[0] || null;
-    const acceptedIds = new Set();
-    if (profileEvent) {
-      for (const tag of profileEvent.tags) {
-        if (tag[0] === "e") {
-          acceptedIds.add(tag[1]);
-        }
+    const coordinates = new Set(
+      awardEvents.map((award) => findTag(award.tags, "a")).filter(Boolean)
+    );
+    for (const pair of extractProfileBadgePairs(profileEvent)) {
+      if (pair.a) {
+        coordinates.add(pair.a);
       }
     }
-    renderBadges(pubkey, awards, acceptedIds, profileEvent);
+    const definitionAuthors = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[1]))];
+    const definitionIds = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[2]))];
+    const awardedBadgeDefinitions =
+      definitionAuthors.length && definitionIds.length
+        ? await relayQuery(DIVINE_RELAY, [
+            {
+              kinds: [BADGE_DEFINITION],
+              authors: definitionAuthors,
+              "#d": definitionIds,
+            },
+          ])
+        : [];
+    const definitionsByCoordinate = new Map();
+    for (const badge of newestFirst([...createdBadges, ...awardedBadgeDefinitions])) {
+      definitionsByCoordinate.set(coordinateFromBadgeDefinition(badge), badge);
+    }
+    const badgeDefinitions = [...definitionsByCoordinate.values()];
+    renderBadgeTabs(pubkey, {
+      profileEvent,
+      awarded: buildAwardedBadgeRecords(awardEvents, badgeDefinitions),
+      accepted: buildAcceptedBadgeRecords(profileEvent, awardEvents, badgeDefinitions),
+      created: newestFirst(createdBadges),
+    });
   } catch (error) {
     showStatus(root, "err", `Could not load badges: ${error.message || error}`);
   }
 }
 
-function renderBadges(pubkey, awards, acceptedIds, profileEvent) {
-  clearStatus();
-  const list = document.getElementById("badges");
-  if (!list) {
-    return;
-  }
-  if (!awards.length) {
-    renderEmptyState(list.parentElement, "No Diviner badges here yet. Keep looping — we check every UTC morning.");
-    return;
-  }
-  list.innerHTML = "";
-  for (const award of newestFirst(awards)) {
-    const badgeRef = award.tags.find((tag) => tag[0] === "a");
-    const period = award.tags.find((tag) => tag[0] === "period");
-    const coord = badgeRef ? badgeRef[1] : "";
-    const badgeId = coord.split(":")[2] || "";
-    const meta = BADGE_META[badgeId] || {
-      name: badgeId || "Diviner",
+function getBadgeMeta(record) {
+  const fallbackCoordinate = record.coordinate || coordinateFromBadgeDefinition(record.badge);
+  const badgeId = fallbackCoordinate.split(":")[2] || "";
+  return (
+    BADGE_META[badgeId] || {
+      name: findTag(record.badge.tags, "name") || badgeId || "Badge",
       emoji: "★",
       variant: "day",
-    };
-    const accepted = acceptedIds.has(award.id);
-    const item = document.createElement("li");
-    item.className = `badge ${meta.variant}${accepted ? " accepted" : ""}`;
-    item.innerHTML = `
+    }
+  );
+}
+
+function getAcceptedAwardIds(records) {
+  return new Set(records.map((record) => record.award.id));
+}
+
+function badgeCardMarkup(record, actions = "") {
+  const meta = getBadgeMeta(record);
+  const period = findTag(record.award?.tags || [], "period");
+  const issuer = record.badge?.pubkey ? shorten(record.badge.pubkey) : "";
+  const description = findTag(record.badge?.tags || [], "description");
+  return `
+    <li class="badge ${meta.variant}${record.accepted ? " accepted" : ""}">
       <div class="med">${esc(meta.emoji)}</div>
       <div class="info">
         <div class="name">${esc(meta.name)}</div>
-        <div class="period">${esc(period ? period[1] : "—")}</div>
+        <div class="period">${esc(period || "—")}</div>
+        ${issuer ? `<div class="issuer">Issuer: ${esc(issuer)}</div>` : ""}
+        ${description ? `<div class="description">${esc(description)}</div>` : ""}
       </div>
-      <div class="actions">
-        ${
-          accepted
-            ? "<button disabled>Pinned ✓</button>"
-            : `<button class="primary" data-id="${esc(award.id)}" data-coord="${esc(coord)}">Pin to profile</button>`
-        }
-      </div>
-    `;
-    list.appendChild(item);
-  }
-  list.querySelectorAll("button[data-id]").forEach((button) => {
-    button.onclick = () =>
-      acceptBadge(
-        pubkey,
-        button.dataset.id,
-        button.dataset.coord,
-        acceptedIds,
-        profileEvent,
-        button
-      );
-  });
+      <div class="actions">${actions}</div>
+    </li>
+  `;
 }
 
-async function acceptBadge(pubkey, awardId, coord, acceptedIds, profileEvent, button) {
-  button.disabled = true;
-  button.textContent = "Signing…";
-  try {
-    const pairs = [];
-    if (profileEvent) {
-      let current = null;
-      for (const tag of profileEvent.tags) {
-        if (tag[0] === "a") {
-          if (current) {
-            pairs.push(current);
-          }
-          current = { a: tag[1], relay: tag[2] };
-        } else if (tag[0] === "e" && current) {
-          current.e = tag[1];
-          current.eRelay = tag[2];
-        }
-      }
-      if (current) {
-        pairs.push(current);
-      }
-    }
-    pairs.push({ a: coord, e: awardId, eRelay: DIVINE_RELAY });
-    const tags = [["d", "profile_badges"]];
-    for (const pair of pairs) {
-      if (pair.a) {
-        tags.push(pair.relay ? ["a", pair.a, pair.relay] : ["a", pair.a]);
-      }
-      if (pair.e) {
-        tags.push(pair.eRelay ? ["e", pair.e, pair.eRelay] : ["e", pair.e]);
-      }
-    }
-    const event = await signer.signEvent({
-      kind: 30008,
-      content: "",
-      tags,
-      created_at: Math.floor(Date.now() / 1000),
+function renderBadgeTabs(pubkey, state) {
+  clearStatus();
+  const root = getView();
+  const panel = document.getElementById("badges");
+  if (!panel) {
+    return;
+  }
+  const acceptedAwardIds = getAcceptedAwardIds(state.accepted);
+  replaceView(
+    panel,
+    `
+      <div class="tabs">
+        <div class="tab-buttons">
+          <button class="tab-button active" data-tab="accepted">Accepted</button>
+          <button class="tab-button" data-tab="awarded">Awarded</button>
+          <button class="tab-button" data-tab="created">Created</button>
+        </div>
+        <div class="tab-panel" id="badge-tab-panel"></div>
+      </div>
+    `
+  );
+
+  const tabPanel = document.getElementById("badge-tab-panel");
+  const buttons = [...root.querySelectorAll(".tab-button")];
+
+  const renderTab = (tabName) => {
+    buttons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.tab === tabName);
     });
-    button.textContent = "Publishing…";
-    await relayPublish(DIVINE_RELAY, event);
-    button.textContent = "Pinned ✓";
-    button.classList.remove("primary");
-    button.closest(".badge").classList.add("accepted");
-    acceptedIds.add(awardId);
+    if (tabName === "accepted") {
+      if (!state.accepted.length) {
+        tabPanel.innerHTML =
+          '<div class="empty">No accepted badges yet. Accept badges from the Awarded tab when you want them on your profile.</div>';
+        return;
+      }
+      tabPanel.innerHTML = `<ul class="badges">${state.accepted
+        .map((record) => badgeCardMarkup({ ...record, accepted: true }))
+        .join("")}</ul>`;
+      return;
+    }
+
+    if (tabName === "created") {
+      if (!state.created.length) {
+        tabPanel.innerHTML =
+          '<div class="empty">No badges created from this account yet.</div>';
+        return;
+      }
+      tabPanel.innerHTML = `<ul class="badges">${state.created
+        .map((badge) =>
+          badgeCardMarkup({
+            badge,
+            coordinate: coordinateFromBadgeDefinition(badge),
+            award: null,
+          })
+        )
+        .join("")}</ul>`;
+      return;
+    }
+
+    if (!state.awarded.length) {
+      tabPanel.innerHTML =
+        '<div class="empty">No badges awarded here yet. Keep looping — we check every UTC morning.</div>';
+      return;
+    }
+    tabPanel.innerHTML = `<ul class="badges">${state.awarded
+      .map((record) => {
+        const accepted = acceptedAwardIds.has(record.award.id);
+        return badgeCardMarkup(
+          record,
+          `
+            <button class="primary" data-action="accept" data-award-id="${esc(
+              record.award.id
+            )}" data-coordinate="${esc(record.coordinate)}" ${accepted ? "disabled" : ""}>Accept</button>
+            <button class="secondary" data-action="hide" data-award-id="${esc(
+              record.award.id
+            )}" ${accepted ? "" : "disabled"}>Hide</button>
+          `
+        );
+      })
+      .join("")}</ul>`;
+    tabPanel.querySelectorAll("button[data-action]").forEach((button) => {
+      button.onclick = () =>
+        handleAwardAction(pubkey, state, button.dataset.action, button);
+    });
+  };
+
+  buttons.forEach((button) => {
+    button.onclick = () => renderTab(button.dataset.tab);
+  });
+  renderTab("accepted");
+}
+
+async function handleAwardAction(pubkey, state, action, button) {
+  button.disabled = true;
+  button.textContent = action === "accept" ? "Signing…" : "Updating…";
+  try {
+    const createdAt = Math.floor(Date.now() / 1000);
+    const event =
+      action === "accept"
+        ? buildAcceptProfileBadgesEvent({
+            pubkey,
+            profileEvent: state.profileEvent,
+            badgeCoordinate: button.dataset.coordinate,
+            awardId: button.dataset.awardId,
+            relayUrl: DIVINE_RELAY,
+            createdAt,
+          })
+        : buildHideProfileBadgesEvent({
+            pubkey,
+            profileEvent: state.profileEvent,
+            awardId: button.dataset.awardId,
+            createdAt,
+          });
+    const signed = await signer.signEvent(event);
+    await relayPublish(DIVINE_RELAY, signed);
+    await loadBadges(pubkey);
   } catch (error) {
+    showStatus(getView(), "err", `Could not update badges: ${error.message || error}`);
     button.disabled = false;
-    button.textContent = "Pin to profile";
-    alert(`Could not pin badge: ${error.message || error}`);
+    button.textContent = action === "accept" ? "Accept" : "Hide";
   }
 }
 
 export async function mountMePage() {
   const root = getView();
+  renderLogin(root);
+  showStatus(root, "info", "Checking for an existing session…");
   try {
     const restoredSigner = await bootstrapSession();
     if (restoredSigner) {
       await onLogin(restoredSigner);
       return;
     }
-    renderLogin(root);
+    clearStatus();
   } catch (error) {
     renderLogin(root);
     showStatus(root, "err", `Startup error: ${error.message || error}`);

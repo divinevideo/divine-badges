@@ -23,6 +23,9 @@ mod wasm_entry {
             (Method::Get, PublicRouteMatch::Health) => Response::ok("ok"),
             (Method::Get, PublicRouteMatch::Avatar) => serve_avatar(),
             (Method::Get, PublicRouteMatch::MePage) => serve_me(),
+            (Method::Get, PublicRouteMatch::NewPage) => serve_html_page(NEW_PAGE),
+            (Method::Get, PublicRouteMatch::ProfilePage) => serve_html_page(PROFILE_PAGE),
+            (Method::Get, PublicRouteMatch::BadgePage) => serve_html_page(BADGE_PAGE),
             (Method::Get, PublicRouteMatch::IssuerPubkey) => serve_pubkey(env).await,
             (Method::Get, PublicRouteMatch::AppAsset(asset)) => serve_app_asset(asset),
             (Method::Post, _) if path == "/admin/publish-profile" => {
@@ -79,12 +82,21 @@ mod wasm_entry {
 
     const AVATAR_PNG: &[u8] = include_bytes!("../assets/avatar.png");
     const ME_PAGE: &str = include_str!("../assets/me.html");
+    const PROFILE_PAGE: &str = include_str!("../assets/profile.html");
+    const BADGE_PAGE: &str = include_str!("../assets/badge.html");
+    const NEW_PAGE: &str = include_str!("../assets/new.html");
     const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
+    const APP_AUTH_PROFILE_JS: &str = include_str!("../assets/app/auth/profile.js");
     const APP_AUTH_SESSION_JS: &str = include_str!("../assets/app/auth/session.js");
+    const APP_NOSTR_BADGES_JS: &str = include_str!("../assets/app/nostr/badges.js");
     const APP_NOSTR_CONSTANTS_JS: &str = include_str!("../assets/app/nostr/constants.js");
+    const APP_NOSTR_IDENTITY_JS: &str = include_str!("../assets/app/nostr/identity.js");
     const APP_NOSTR_RELAY_JS: &str = include_str!("../assets/app/nostr/relay.js");
+    const APP_VIEWS_BADGE_JS: &str = include_str!("../assets/app/views/badge.js");
     const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
     const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
+    const APP_VIEWS_NEW_JS: &str = include_str!("../assets/app/views/new.js");
+    const APP_VIEWS_PROFILE_JS: &str = include_str!("../assets/app/views/profile.js");
 
     fn serve_avatar() -> worker::Result<Response> {
         let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
@@ -96,17 +108,31 @@ mod wasm_entry {
     }
 
     fn serve_me() -> worker::Result<Response> {
-        Response::from_html(ME_PAGE)
+        serve_html_page(ME_PAGE)
+    }
+
+    fn serve_html_page(page: &str) -> worker::Result<Response> {
+        let mut response = Response::from_html(page)?;
+        response
+            .headers_mut()
+            .set("cache-control", "no-store, max-age=0")?;
+        Ok(response)
     }
 
     fn serve_app_asset(asset: PublicAppAsset) -> worker::Result<Response> {
         let source = match asset {
             PublicAppAsset::BootJs => APP_BOOT_JS,
+            PublicAppAsset::AuthProfileJs => APP_AUTH_PROFILE_JS,
             PublicAppAsset::AuthSessionJs => APP_AUTH_SESSION_JS,
+            PublicAppAsset::NostrBadgesJs => APP_NOSTR_BADGES_JS,
             PublicAppAsset::NostrConstantsJs => APP_NOSTR_CONSTANTS_JS,
+            PublicAppAsset::NostrIdentityJs => APP_NOSTR_IDENTITY_JS,
             PublicAppAsset::NostrRelayJs => APP_NOSTR_RELAY_JS,
+            PublicAppAsset::ViewsBadgeJs => APP_VIEWS_BADGE_JS,
             PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,
             PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
+            PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,
+            PublicAppAsset::ViewsProfileJs => APP_VIEWS_PROFILE_JS,
         };
         let mut response = Response::ok(source)?;
         response
@@ -114,7 +140,7 @@ mod wasm_entry {
             .set("content-type", "application/javascript; charset=utf-8")?;
         response
             .headers_mut()
-            .set("cache-control", "public, max-age=300")?;
+            .set("cache-control", "no-store, max-age=0")?;
         Ok(response)
     }
 
