@@ -7,6 +7,7 @@ import {
   buildAwardedBadgeRecords,
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
+  buildNewBadgePreviewModel,
   canAwardBadge,
   deriveBadgeSlug,
   buildHideProfileBadgesEvent,
@@ -277,5 +278,24 @@ test("canAwardBadge allows only the badge author", () => {
   assert.equal(
     canAwardBadge({ signerPubkey: "viewer", badgeAuthorPubkey: "owner" }),
     false
+  );
+});
+
+test("buildNewBadgePreviewModel falls back to the primary image for thumb", () => {
+  assert.deepEqual(
+    buildNewBadgePreviewModel({
+      name: "Diviner of the Day",
+      description: "Awarded daily",
+      identifier: "diviner-of-the-day",
+      imageUrl: "https://media.divine.video/image.webp",
+      thumbUrl: null,
+    }),
+    {
+      name: "Diviner of the Day",
+      description: "Awarded daily",
+      identifier: "diviner-of-the-day",
+      imageUrl: "https://media.divine.video/image.webp",
+      thumbUrl: "https://media.divine.video/image.webp",
+    }
   );
 });

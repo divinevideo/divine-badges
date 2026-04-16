@@ -25,6 +25,22 @@ export function canAwardBadge({ signerPubkey, badgeAuthorPubkey }) {
   return Boolean(signerPubkey) && signerPubkey === badgeAuthorPubkey;
 }
 
+export function buildNewBadgePreviewModel({
+  name,
+  description,
+  identifier,
+  imageUrl,
+  thumbUrl,
+}) {
+  return {
+    name: name || "Untitled badge",
+    description: description || "",
+    identifier: identifier || "",
+    imageUrl: imageUrl || null,
+    thumbUrl: thumbUrl || imageUrl || null,
+  };
+}
+
 export function findTag(tags, key) {
   return tags.find((tag) => tag[0] === key)?.[1];
 }
