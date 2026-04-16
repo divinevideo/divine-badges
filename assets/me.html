@@ -22,6 +22,8 @@
     .nav-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
     .back{font-size:.88rem;color:var(--mint);border-bottom:1.5px solid rgba(208,251,203,.4);padding-bottom:1px}
     .back:hover{color:var(--green);border-bottom-color:var(--green)}
+    .nav-cta{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border-radius:999px;background:var(--green);color:var(--dark);border:2px solid var(--green);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:.95rem;line-height:1}
+    .nav-cta:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--off)}
     .auth-chip{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:8px 14px;border-radius:999px;border:2px solid rgba(208,251,203,.22);background:rgba(208,251,203,.04);color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;line-height:1;cursor:pointer}
     .auth-chip:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
     .auth-chip:disabled{cursor:wait;opacity:.8}
@@ -73,6 +75,8 @@
     .badge .info .issuer,.badge .info .description{font-size:.9rem;line-height:1.45;opacity:.72}
     .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
     .empty{padding:48px 28px;text-align:center;border:2px dashed rgba(208,251,203,.35);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.1rem}
+    .empty-cta{display:inline-flex;align-items:center;justify-content:center;margin-top:16px;min-height:44px;padding:10px 18px;border-radius:999px;background:var(--off);color:var(--dark);border:2px solid var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:.96rem;line-height:1}
+    .empty-cta:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
     .status{margin-top:14px;padding:12px 16px;border-radius:14px;font-size:.92rem;line-height:1.4}
     .status.ok{background:rgba(39,197,139,.12);color:var(--green);border:1px solid rgba(39,197,139,.4)}
     .status.err{background:rgba(255,127,175,.14);color:var(--pink);border:1px solid rgba(255,127,175,.5)}
@@ -94,6 +98,7 @@
       <a class="brand" href="/"><span class="logomark" aria-hidden="true"></span><span>Divine Badges</span></a>
       <div class="nav-actions">
         <a class="back" href="/">← All winners</a>
+        <a class="nav-cta" href="/new">Create badge</a>
         <button class="auth-chip logged-out" id="auth-chip" type="button">Log in</button>
       </div>
     </nav>
@@ -107,7 +112,7 @@
     </footer>
   </main>
   <script type="module">
-    import { mountMePage } from "/app/views/me.js?v=2026-04-14-3";
+    import { mountMePage } from "/app/views/me.js?v=2026-04-16-1";
 
     mountMePage();
   </script>

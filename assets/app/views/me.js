@@ -36,6 +36,7 @@ import {
   shorten,
   showStatus,
 } from "/app/views/common.js?v=2026-04-14-3";
+import { buildMeEmptyStateMarkup } from "/app/views/me_empty_state.js?v=2026-04-16-1";
 
 const DIVINE_API_BASE = "https://api.divine.video";
 const BADGE_META = {
@@ -325,8 +326,7 @@ function renderBadgeTabs(pubkey, state) {
     });
     if (tabName === "accepted") {
       if (!state.accepted.length) {
-        tabPanel.innerHTML =
-          '<div class="empty">No accepted badges yet. Accept badges from the Awarded tab when you want them on your profile.</div>';
+        tabPanel.innerHTML = buildMeEmptyStateMarkup("accepted");
         return;
       }
       tabPanel.innerHTML = `<ul class="badges">${state.accepted
@@ -337,8 +337,7 @@ function renderBadgeTabs(pubkey, state) {
 
     if (tabName === "created") {
       if (!state.created.length) {
-        tabPanel.innerHTML =
-          '<div class="empty">No badges created from this account yet.</div>';
+        tabPanel.innerHTML = buildMeEmptyStateMarkup("created");
         return;
       }
       tabPanel.innerHTML = `<ul class="badges">${state.created
@@ -354,8 +353,7 @@ function renderBadgeTabs(pubkey, state) {
     }
 
     if (!state.awarded.length) {
-      tabPanel.innerHTML =
-        '<div class="empty">No badges awarded here yet. Keep looping — we check every UTC morning.</div>';
+      tabPanel.innerHTML = buildMeEmptyStateMarkup("awarded");
       return;
     }
     tabPanel.innerHTML = `<ul class="badges">${state.awarded

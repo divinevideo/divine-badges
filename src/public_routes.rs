@@ -11,6 +11,7 @@ pub enum PublicAppAsset {
     ViewsCommonJs,
     ViewsBadgeJs,
     ViewsMeJs,
+    ViewsMeEmptyStateJs,
     ViewsNewJs,
     ViewsProfileJs,
 }
@@ -54,6 +55,9 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/app/views/badge.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsBadgeJs),
         "/app/views/common.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsCommonJs),
         "/app/views/me.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMeJs),
+        "/app/views/me_empty_state.js" => {
+            PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMeEmptyStateJs)
+        }
         "/app/views/new.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsNewJs),
         "/app/views/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsProfileJs),
         _ => PublicRouteMatch::NotFound,

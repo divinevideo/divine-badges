@@ -60,6 +60,10 @@ fn classify_public_route_matches_shared_app_assets() {
         classify_public_route("/app/media/blossom.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::MediaBlossomJs)
     );
+    assert_eq!(
+        classify_public_route("/app/views/me_empty_state.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMeEmptyStateJs)
+    );
     assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
     assert_eq!(
         classify_public_route("/p/npub1example"),
