@@ -15,14 +15,18 @@ import {
 import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
   buildBadgeAwardEvent,
+  canAwardBadge,
   coordinateFromBadgeDefinition,
   findTag,
+  parseRecipientInput,
+  shouldOpenAwardPanel,
 } from "/app/nostr/badges.js?v=2026-04-14-3";
 import {
   parseBadgeCoordinate,
   resolveProfileId,
 } from "/app/nostr/identity.js?v=2026-04-14-3";
 import {
+  clearStatus,
   esc,
   replaceView,
   shorten,
@@ -150,7 +154,9 @@ function badgePresentation(state) {
   return {
     ...base,
     name,
-    description: findTag(state.badge.tags, "description") || "A badge issued on Divine and pinned on Nostr profiles.",
+    description:
+      findTag(state.badge.tags, "description") ||
+      "A badge issued on Divine and pinned on Nostr profiles.",
     image: findTag(state.badge.tags, "image") || findTag(state.badge.tags, "thumb"),
   };
 }
@@ -176,7 +182,79 @@ function awardeeCardMarkup(entry) {
   `;
 }
 
-function badgePageMarkup(state, canAward) {
+function resolvedRecipientMarkup(entry) {
+  const avatar = entry.profile.avatarUrl
+    ? `<img src="${esc(entry.profile.avatarUrl)}" alt="">`
+    : esc(entry.profile.initials);
+  return `
+    <div class="resolved-recipient">
+      <div class="awardee-avatar small">${avatar}</div>
+      <div>
+        <div class="awardee-name compact">${esc(entry.profile.displayName)}</div>
+        <div class="awardee-sub">${esc(entry.profile.handle || shorten(entry.pubkey))}</div>
+      </div>
+    </div>
+  `;
+}
+
+function awardPanelMarkup(awardState) {
+  const resolvedCount = awardState.resolved.length;
+  const invalidCount = awardState.invalid.length;
+  return `
+    <details class="award-panel" ${awardState.open ? "open" : ""}>
+      <summary>Award this badge</summary>
+      <div class="award-panel-body">
+        <p class="kicker">Resolve one NIP-05 handle or paste bulk recipients as <code>npub</code>, hex pubkeys, or NIP-05 values.</p>
+        <div class="inline-row">
+          <label class="inline-field">
+            <span>Quick resolve</span>
+            <input id="nip05-input" value="${esc(awardState.nip05Input)}" placeholder="creator@domain.com">
+          </label>
+          <button class="secondary" id="add-handle" type="button" ${awardState.resolving ? "disabled" : ""}>Add handle</button>
+        </div>
+        <label class="stack-field">
+          <span>Bulk recipients</span>
+          <textarea id="recipient-input" placeholder="npub1...\nhexpubkey...\ncreator@divine.video">${esc(
+            awardState.bulkInput
+          )}</textarea>
+        </label>
+        <div class="action-row">
+          <button class="secondary" id="resolve-recipients" type="button" ${
+            awardState.resolving ? "disabled" : ""
+          }>${awardState.resolving ? "Resolving…" : "Review recipients"}</button>
+          <button class="primary" id="award-submit" type="button" ${
+            awardState.publishing || !resolvedCount ? "disabled" : ""
+          }>${awardState.publishing ? "Publishing…" : "Publish award"}</button>
+          <span class="helper-copy">One kind 8 event with one <code>a</code> tag and one <code>p</code> tag per recipient.</span>
+        </div>
+        <div class="recipient-results">
+          <div class="result-block">
+            <div class="result-title">Ready to publish${resolvedCount ? ` · ${resolvedCount}` : ""}</div>
+            ${
+              resolvedCount
+                ? `<div class="resolved-list">${awardState.resolved
+                    .map((entry) => resolvedRecipientMarkup(entry))
+                    .join("")}</div>`
+                : '<div class="empty compact">Resolve recipients to preview the final award list.</div>'
+            }
+          </div>
+          ${
+            invalidCount
+              ? `<div class="result-block">
+                   <div class="result-title">Couldn’t resolve · ${invalidCount}</div>
+                   <div class="invalid-list">${awardState.invalid
+                     .map((value) => `<span class="invalid-pill">${esc(value)}</span>`)
+                     .join("")}</div>
+                 </div>`
+              : ""
+          }
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function badgePageMarkup(state, canAward, awardState) {
   const badge = badgePresentation(state);
   const awardCount = state.awardees.length;
   const medal = badge.image
@@ -251,17 +329,7 @@ function badgePageMarkup(state, canAward) {
 
           ${
             canAward
-              ? `<section class="section">
-                   <h3>Award This Badge</h3>
-                   <p class="kicker">Paste one or many recipients as npub, hex pubkeys, or NIP-05 handles.</p>
-                   <div class="award-form">
-                     <textarea id="recipient-input" placeholder="npub1...\ncreator@divine.video\nhexpubkey..."></textarea>
-                     <div class="action-row">
-                       <button class="primary" id="award-submit" type="button">Award badge</button>
-                       <span style="color:rgba(208,251,203,.72);font-size:.92rem">One kind 8 event with one <code>a</code> tag and one <code>p</code> tag per recipient.</span>
-                     </div>
-                   </div>
-                 </section>`
+              ? awardPanelMarkup(awardState)
               : `<div class="owner-note">Only the badge issuer can award this badge.</div>`
           }
         </div>
@@ -270,42 +338,136 @@ function badgePageMarkup(state, canAward) {
   `;
 }
 
-async function publishAward(state) {
-  const input = document.getElementById("recipient-input");
-  const tokens = [...new Set(input.value.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean))];
+async function resolveAwardRecipients(awardState) {
+  const combined = [awardState.nip05Input, awardState.bulkInput]
+    .filter(Boolean)
+    .join("\n");
+  const tokens = parseRecipientInput(combined);
   if (!tokens.length) {
-    showStatus(getView(), "err", "Add at least one recipient.");
-    return;
+    awardState.resolved = [];
+    awardState.invalid = [];
+    throw new Error("Add at least one recipient.");
   }
+
   const resolved = [];
   const invalid = [];
+  const seenPubkeys = new Set();
+
   for (const token of tokens) {
     try {
-      resolved.push(await resolveProfileId(token));
+      const pubkey = await resolveProfileId(token);
+      if (seenPubkeys.has(pubkey)) {
+        continue;
+      }
+      seenPubkeys.add(pubkey);
+      resolved.push({
+        token,
+        pubkey,
+        profile: await loadDivineProfile(pubkey),
+      });
     } catch {
       invalid.push(token);
     }
   }
-  if (!resolved.length) {
-    showStatus(getView(), "err", "No valid recipients found.");
-    return;
+
+  awardState.resolved = resolved;
+  awardState.invalid = invalid;
+}
+
+async function publishAward(state, awardState) {
+  if (!awardState.resolved.length) {
+    throw new Error("Resolve recipients before publishing.");
   }
   const event = buildBadgeAwardEvent({
     pubkey: signerPubkey,
     badgeCoordinate: state.coordinateValue,
-    recipients: resolved,
+    recipients: awardState.resolved.map((entry) => entry.pubkey),
     createdAt: Math.floor(Date.now() / 1000),
   });
   const signed = await signer.signEvent(event);
   await relayPublish(DIVINE_RELAY, signed);
-  showStatus(
-    getView(),
-    "info",
-    invalid.length
-      ? `Awarded to ${resolved.length}. Ignored ${invalid.length} invalid recipient(s).`
-      : `Awarded to ${resolved.length} recipient(s).`
-  );
-  window.setTimeout(() => window.location.reload(), 800);
+}
+
+function readAwardInputs(awardState) {
+  const nip05Input = document.getElementById("nip05-input");
+  const recipientInput = document.getElementById("recipient-input");
+  awardState.nip05Input = nip05Input?.value || "";
+  awardState.bulkInput = recipientInput?.value || "";
+}
+
+function bindAwardControls(state, awardState, rerender) {
+  const details = document.querySelector(".award-panel");
+  if (details) {
+    details.addEventListener("toggle", () => {
+      awardState.open = details.open;
+    });
+  }
+
+  const addHandle = document.getElementById("add-handle");
+  if (addHandle) {
+    addHandle.onclick = async () => {
+      readAwardInputs(awardState);
+      awardState.open = true;
+      awardState.resolving = true;
+      clearStatus();
+      rerender();
+      try {
+        await resolveAwardRecipients(awardState);
+        if (awardState.nip05Input.trim()) {
+          const addition = awardState.nip05Input.trim();
+          awardState.bulkInput = [awardState.bulkInput, addition].filter(Boolean).join("\n");
+          awardState.nip05Input = "";
+        }
+      } catch (error) {
+        showStatus(getView(), "err", error.message || String(error));
+      } finally {
+        awardState.resolving = false;
+        rerender();
+      }
+    };
+  }
+
+  const reviewButton = document.getElementById("resolve-recipients");
+  if (reviewButton) {
+    reviewButton.onclick = async () => {
+      readAwardInputs(awardState);
+      awardState.open = true;
+      awardState.resolving = true;
+      clearStatus();
+      rerender();
+      try {
+        await resolveAwardRecipients(awardState);
+        if (!awardState.resolved.length) {
+          showStatus(getView(), "err", "No valid recipients found.");
+        }
+      } catch (error) {
+        showStatus(getView(), "err", error.message || String(error));
+      } finally {
+        awardState.resolving = false;
+        rerender();
+      }
+    };
+  }
+
+  const publishButton = document.getElementById("award-submit");
+  if (publishButton) {
+    publishButton.onclick = async () => {
+      readAwardInputs(awardState);
+      awardState.open = true;
+      awardState.publishing = true;
+      clearStatus();
+      rerender();
+      try {
+        await publishAward(state, awardState);
+        showStatus(getView(), "info", `Awarded to ${awardState.resolved.length} recipient(s).`);
+        window.setTimeout(() => window.location.reload(), 800);
+      } catch (error) {
+        awardState.publishing = false;
+        rerender();
+        showStatus(getView(), "err", `Could not award badge: ${error.message || error}`);
+      }
+    };
+  }
 }
 
 export async function mountBadgePage() {
@@ -315,17 +477,28 @@ export async function mountBadgePage() {
 
   try {
     const state = await loadBadgePageState();
-    const canAward = signerPubkey === state.coordinate.pubkey;
-    replaceView(root, badgePageMarkup(state, canAward));
-    if (canAward) {
-      document.getElementById("award-submit").onclick = async () => {
-        try {
-          await publishAward(state);
-        } catch (error) {
-          showStatus(root, "err", `Could not award badge: ${error.message || error}`);
-        }
-      };
-    }
+    const canAward = canAwardBadge({
+      signerPubkey,
+      badgeAuthorPubkey: state.coordinate.pubkey,
+    });
+    const awardState = {
+      nip05Input: "",
+      bulkInput: "",
+      resolved: [],
+      invalid: [],
+      open: shouldOpenAwardPanel(window.location.search),
+      resolving: false,
+      publishing: false,
+    };
+
+    const rerender = () => {
+      replaceView(root, badgePageMarkup(state, canAward, awardState));
+      if (canAward) {
+        bindAwardControls(state, awardState, rerender);
+      }
+    };
+
+    rerender();
   } catch (error) {
     replaceView(root, '<div class="empty">Could not load this badge.</div>');
     showStatus(root, "err", error.message || String(error));

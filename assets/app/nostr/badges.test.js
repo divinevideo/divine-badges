@@ -15,6 +15,7 @@ import {
   buildProfileBadgeTags,
   coordinateFromBadgeDefinition,
   extractProfileBadgePairs,
+  shouldOpenAwardPanel,
 } from "./badges.js";
 
 test("extractProfileBadgePairs preserves ordered a/e pairs", () => {
@@ -298,4 +299,10 @@ test("buildNewBadgePreviewModel falls back to the primary image for thumb", () =
       thumbUrl: "https://media.divine.video/image.webp",
     }
   );
+});
+
+test("shouldOpenAwardPanel reads the route query flag", () => {
+  assert.equal(shouldOpenAwardPanel("?award=1"), true);
+  assert.equal(shouldOpenAwardPanel("?award=0"), false);
+  assert.equal(shouldOpenAwardPanel(""), false);
 });

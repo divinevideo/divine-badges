@@ -71,13 +71,35 @@
     .detail-value{font-size:.95rem;color:var(--off);word-break:break-word}
     .detail-value code{font-family:'SFMono-Regular',ui-monospace,monospace;font-size:.82rem;color:var(--mint)}
     .owner-note{padding:14px 16px;border-radius:18px;background:rgba(208,251,203,.06);border:1px solid rgba(208,251,203,.15);color:rgba(208,251,203,.84);font-size:.95rem}
-    .award-form{display:grid;gap:12px}
-    .award-form textarea{min-height:136px;padding:14px 16px;border-radius:18px;border:2px solid rgba(208,251,203,.18);background:rgba(7,36,27,.72);color:var(--off)}
-    .award-form textarea:focus{outline:none;box-shadow:4px 4px 0 rgba(39,197,139,.45)}
+    .award-panel{border-radius:22px;background:rgba(208,251,203,.05);border:1px solid rgba(208,251,203,.14);overflow:hidden}
+    .award-panel summary{list-style:none;cursor:pointer;padding:16px 18px;font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:1.18rem;font-weight:800;letter-spacing:-.02em}
+    .award-panel summary::-webkit-details-marker{display:none}
+    .award-panel summary::after{content:"+";float:right;color:var(--green);font-size:1.2rem;line-height:1}
+    .award-panel[open] summary::after{content:"−"}
+    .award-panel-body{padding:0 18px 18px;display:grid;gap:14px}
+    .inline-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+    .inline-field,.stack-field{display:grid;gap:8px}
+    .inline-field span,.stack-field span,.result-title{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:700;font-size:.95rem;color:var(--mint)}
+    .inline-field input,.stack-field textarea{width:100%;padding:14px 16px;border-radius:16px;border:2px solid rgba(208,251,203,.18);background:rgba(7,36,27,.72);color:var(--off)}
+    .stack-field textarea{min-height:136px}
+    .inline-field input:focus,.stack-field textarea:focus{outline:none;box-shadow:4px 4px 0 rgba(39,197,139,.45)}
+    .secondary,.primary{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:700;font-size:1rem;padding:10px 18px;border-radius:14px;border:2px solid rgba(7,36,27,.92);cursor:pointer}
+    .primary{background:var(--green);color:var(--dark)}
+    .secondary{background:rgba(249,247,246,.95);color:var(--dark)}
+    .secondary:disabled,.primary:disabled{opacity:.6;cursor:not-allowed}
     .action-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .primary{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:700;font-size:1rem;padding:10px 18px;border-radius:14px;border:2px solid rgba(7,36,27,.92);background:var(--green);color:var(--dark);cursor:pointer}
-    .primary:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 rgba(249,247,246,.16)}
+    .primary:hover,.secondary:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 rgba(249,247,246,.16)}
+    .helper-copy{color:rgba(208,251,203,.72);font-size:.92rem}
+    .recipient-results{display:grid;gap:12px}
+    .result-block{display:grid;gap:10px}
+    .resolved-list{display:grid;gap:10px}
+    .resolved-recipient{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;padding:12px 14px;border-radius:16px;background:rgba(249,247,246,.96);color:var(--dark);border:2px solid rgba(7,36,27,.86)}
+    .awardee-avatar.small{width:42px;height:42px;font-size:1rem}
+    .awardee-name.compact{font-size:1rem}
+    .invalid-list{display:flex;gap:8px;flex-wrap:wrap}
+    .invalid-pill{display:inline-flex;align-items:center;padding:8px 10px;border-radius:999px;background:rgba(255,127,175,.14);border:1px solid rgba(255,127,175,.35);color:var(--pink);font-size:.88rem}
     .empty{padding:32px 24px;text-align:center;border:2px dashed rgba(208,251,203,.24);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.08rem}
+    .empty.compact{padding:18px 16px;font-size:.95rem}
     .status{margin-top:14px;padding:12px 16px;border-radius:14px;font-size:.92rem;line-height:1.4}
     .status.err{background:rgba(255,127,175,.14);color:var(--pink);border:1px solid rgba(255,127,175,.5)}
     .status.info{background:rgba(208,251,203,.08);color:var(--mint);border:1px solid rgba(208,251,203,.25)}
@@ -92,6 +114,7 @@
       .nav-actions{width:100%;justify-content:space-between}
       .hero-card{padding:24px}
       .hero-copy h2{max-width:none}
+      .inline-row{grid-template-columns:1fr}
     }
   </style>
 </head>

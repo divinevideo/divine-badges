@@ -41,6 +41,10 @@ export function buildNewBadgePreviewModel({
   };
 }
 
+export function shouldOpenAwardPanel(search) {
+  return new URLSearchParams(search).get("award") === "1";
+}
+
 export function findTag(tags, key) {
   return tags.find((tag) => tag[0] === key)?.[1];
 }
