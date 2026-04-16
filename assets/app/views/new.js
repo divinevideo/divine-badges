@@ -10,10 +10,10 @@ import {
   buildBadgeDefinitionEvent,
   buildNewBadgePreviewModel,
   coordinateFromBadgeDefinition,
-  deriveBadgeSlug,
 } from "/app/nostr/badges.js?v=2026-04-14-3";
 import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
 import { clearStatus, esc, replaceView, showStatus } from "/app/views/common.js?v=2026-04-14-3";
+import { wireTextFieldHandlers } from "/app/views/new_text_fields.js?v=2026-04-16-2";
 
 const BLOSSOM_ENDPOINT = "https://media.divine.video";
 
@@ -94,13 +94,6 @@ async function restoreOptionalSession() {
   }
 }
 
-function syncIdentifierFromName() {
-  if (state.identifierTouched) {
-    return;
-  }
-  state.identifier = deriveBadgeSlug(state.name);
-}
-
 function formMarkup() {
   const preview = buildNewBadgePreviewModel({
     name: state.name.trim(),
@@ -117,7 +110,7 @@ function formMarkup() {
     <div class="studio-grid">
       <section class="studio-preview panel">
         <div class="panel-kicker">Live preview</div>
-        <div class="badge-stage">
+          <div class="badge-stage">
           <div class="badge-art ${preview.imageUrl ? "has-art" : ""}">
             ${
               preview.imageUrl
@@ -126,9 +119,9 @@ function formMarkup() {
             }
           </div>
           <div class="preview-copy">
-            <div class="preview-name">${esc(preview.name)}</div>
-            <div class="preview-id">${esc(preview.identifier || "badge-id")}</div>
-            <p class="preview-description">${esc(
+            <div class="preview-name" id="preview-name">${esc(preview.name)}</div>
+            <div class="preview-id" id="preview-id">${esc(preview.identifier || "badge-id")}</div>
+            <p class="preview-description" id="preview-description">${esc(
               preview.description || "Add a short description so recipients know what this badge means."
             )}</p>
           </div>
@@ -230,20 +223,41 @@ function renderStudio() {
   wireStudioEvents();
 }
 
+function syncPreviewText() {
+  const preview = buildNewBadgePreviewModel({
+    name: state.name.trim(),
+    description: state.description.trim(),
+    identifier: state.identifier.trim(),
+    imageUrl: state.imageUrl,
+    thumbUrl: state.thumbUrl,
+  });
+  const previewName = document.getElementById("preview-name");
+  const previewId = document.getElementById("preview-id");
+  const previewDescription = document.getElementById("preview-description");
+  const identifierInput = document.getElementById("identifier");
+
+  if (previewName) {
+    previewName.textContent = preview.name;
+  }
+  if (previewId) {
+    previewId.textContent = preview.identifier || "badge-id";
+  }
+  if (previewDescription) {
+    previewDescription.textContent =
+      preview.description || "Add a short description so recipients know what this badge means.";
+  }
+  if (identifierInput instanceof HTMLInputElement && identifierInput.value !== state.identifier) {
+    identifierInput.value = state.identifier;
+  }
+}
+
 function wireTextFields() {
-  document.getElementById("name").addEventListener("input", (event) => {
-    state.name = event.target.value;
-    syncIdentifierFromName();
-    renderStudio();
-  });
-  document.getElementById("identifier").addEventListener("input", (event) => {
-    state.identifierTouched = true;
-    state.identifier = event.target.value;
-    renderStudio();
-  });
-  document.getElementById("description").addEventListener("input", (event) => {
-    state.description = event.target.value;
-    renderStudio();
+  wireTextFieldHandlers({
+    nameInput: document.getElementById("name"),
+    identifierInput: document.getElementById("identifier"),
+    descriptionInput: document.getElementById("description"),
+    state,
+    onStateChange: syncPreviewText,
   });
 }
 

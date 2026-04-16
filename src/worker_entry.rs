@@ -98,6 +98,8 @@ mod wasm_entry {
     const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
     const APP_VIEWS_ME_EMPTY_STATE_JS: &str = include_str!("../assets/app/views/me_empty_state.js");
     const APP_VIEWS_NEW_JS: &str = include_str!("../assets/app/views/new.js");
+    const APP_VIEWS_NEW_TEXT_FIELDS_JS: &str =
+        include_str!("../assets/app/views/new_text_fields.js");
     const APP_VIEWS_PROFILE_JS: &str = include_str!("../assets/app/views/profile.js");
 
     fn serve_avatar() -> worker::Result<Response> {
@@ -136,6 +138,7 @@ mod wasm_entry {
             PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
             PublicAppAsset::ViewsMeEmptyStateJs => APP_VIEWS_ME_EMPTY_STATE_JS,
             PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,
+            PublicAppAsset::ViewsNewTextFieldsJs => APP_VIEWS_NEW_TEXT_FIELDS_JS,
             PublicAppAsset::ViewsProfileJs => APP_VIEWS_PROFILE_JS,
         };
         let mut response = Response::ok(source)?;
