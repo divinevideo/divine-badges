@@ -13,6 +13,18 @@ export function deriveBadgeSlug(name) {
     .replace(/^-+|-+$/g, "");
 }
 
+export function parseRecipientInput(value) {
+  const parts = (value || "")
+    .split(/[\n,]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return [...new Set(parts)];
+}
+
+export function canAwardBadge({ signerPubkey, badgeAuthorPubkey }) {
+  return Boolean(signerPubkey) && signerPubkey === badgeAuthorPubkey;
+}
+
 export function findTag(tags, key) {
   return tags.find((tag) => tag[0] === key)?.[1];
 }

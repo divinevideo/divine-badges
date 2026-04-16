@@ -7,8 +7,10 @@ import {
   buildAwardedBadgeRecords,
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
+  canAwardBadge,
   deriveBadgeSlug,
   buildHideProfileBadgesEvent,
+  parseRecipientInput,
   buildProfileBadgeTags,
   coordinateFromBadgeDefinition,
   extractProfileBadgePairs,
@@ -258,4 +260,22 @@ test("buildBadgeDefinitionEvent uses explicit image and thumb URLs", () => {
     ["image", "https://media.divine.video/image.webp"],
     ["thumb", "https://media.divine.video/thumb.webp"],
   ]);
+});
+
+test("parseRecipientInput splits and deduplicates mixed separators", () => {
+  assert.deepEqual(
+    parseRecipientInput("npub1alice\nabcdef1234, abcdef1234 , npub1alice"),
+    ["npub1alice", "abcdef1234"]
+  );
+});
+
+test("canAwardBadge allows only the badge author", () => {
+  assert.equal(
+    canAwardBadge({ signerPubkey: "owner", badgeAuthorPubkey: "owner" }),
+    true
+  );
+  assert.equal(
+    canAwardBadge({ signerPubkey: "viewer", badgeAuthorPubkey: "owner" }),
+    false
+  );
 });
