@@ -150,15 +150,15 @@ function formMarkup() {
         <div class="field-grid">
           <label class="field">
             <span>Badge name</span>
-            <input id="name" value="${esc(state.name)}" placeholder="Diviner of the Day">
+            <input id="name" value="${esc(state.name)}" placeholder="Scene Stealer">
           </label>
           <label class="field">
             <span>Identifier</span>
-            <input id="identifier" value="${esc(state.identifier)}" placeholder="diviner-of-the-day">
+            <input id="identifier" value="${esc(state.identifier)}" placeholder="scene-stealer">
           </label>
           <label class="field field-full">
             <span>Description</span>
-            <textarea id="description" placeholder="Awarded to the creator whose loops hit hardest today.">${esc(
+            <textarea id="description" placeholder="For the creator who steals the scroll with one perfect loop.">${esc(
               state.description
             )}</textarea>
           </label>
