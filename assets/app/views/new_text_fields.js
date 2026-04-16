@@ -16,6 +16,10 @@ export function applyDescriptionInput(state, value) {
   state.description = value;
 }
 
+export function applyUploadError(state, value) {
+  state.uploadError = value;
+}
+
 export function wireTextFieldHandlers({
   nameInput,
   identifierInput,

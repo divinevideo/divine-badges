@@ -5,6 +5,7 @@ import {
   applyDescriptionInput,
   applyIdentifierInput,
   applyNameInput,
+  applyUploadError,
   wireTextFieldHandlers,
 } from "./new_text_fields.js";
 
@@ -108,4 +109,14 @@ test("text field handlers notify a sync callback for each edit", () => {
   assert.equal(state.name, "Scene Stealer");
   assert.equal(state.identifier, "scene-stealer");
   assert.equal(state.description, "For one perfect loop.");
+});
+
+test("upload errors are stored for persistent rendering", () => {
+  const state = {
+    uploadError: "",
+  };
+
+  applyUploadError(state, "upload failed with 401");
+
+  assert.equal(state.uploadError, "upload failed with 401");
 });

@@ -13,7 +13,10 @@ import {
 } from "/app/nostr/badges.js?v=2026-04-14-3";
 import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
 import { clearStatus, esc, replaceView, showStatus } from "/app/views/common.js?v=2026-04-14-3";
-import { wireTextFieldHandlers } from "/app/views/new_text_fields.js?v=2026-04-16-2";
+import {
+  applyUploadError,
+  wireTextFieldHandlers,
+} from "/app/views/new_text_fields.js?v=2026-04-16-3";
 
 const BLOSSOM_ENDPOINT = "https://media.divine.video";
 
@@ -34,6 +37,7 @@ const state = {
   uploadingImage: false,
   uploadingThumb: false,
   publishing: false,
+  uploadError: "",
 };
 
 function getView() {
@@ -202,6 +206,7 @@ function formMarkup() {
         </div>
       </section>
     </div>
+    ${state.uploadError ? `<p class="status err">${esc(state.uploadError)}</p>` : ""}
   `;
 }
 
@@ -265,6 +270,7 @@ async function handleFileUpload(kind, file) {
   if (!file) {
     return;
   }
+  applyUploadError(state, "");
   clearStatus();
   if (kind === "image") {
     state.uploadingImage = true;
@@ -291,7 +297,7 @@ async function handleFileUpload(kind, file) {
       state.thumbSha256 = uploaded.sha256;
     }
   } catch (error) {
-    showStatus(getView(), "err", `Upload failed: ${error.message || error}`);
+    applyUploadError(state, `Upload failed: ${error.message || error}`);
   } finally {
     if (kind === "image") {
       state.uploadingImage = false;

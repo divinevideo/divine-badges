@@ -39,6 +39,29 @@ export async function sha256Hex(file) {
     .join("");
 }
 
+export async function resolveBlossomUploadEndpoint({ endpoint, file, sha256 }) {
+  const controlUrl = new URL("/upload", endpoint);
+  let response;
+  try {
+    response = await fetch(controlUrl, {
+      method: "HEAD",
+    });
+  } catch {
+    return controlUrl.toString();
+  }
+
+  if (!response.ok) {
+    return controlUrl.toString();
+  }
+
+  const dataHost = response.headers.get("x-divine-upload-data-host");
+  if (!dataHost) {
+    return controlUrl.toString();
+  }
+
+  return new URL("/upload", `https://${dataHost}`).toString();
+}
+
 export async function uploadToBlossom({
   file,
   signer,
@@ -54,6 +77,11 @@ export async function uploadToBlossom({
   }
 
   const sha256 = await sha256Hex(file);
+  const uploadUrl = await resolveBlossomUploadEndpoint({
+    endpoint,
+    file,
+    sha256,
+  });
   const createdAt = Math.floor(Date.now() / 1000);
   const expiresAt = createdAt + expiresInSeconds;
   const host = new URL(endpoint).host;
@@ -65,7 +93,7 @@ export async function uploadToBlossom({
     expiresAt,
   });
   const signedAuth = await signer.signEvent(authEvent);
-  const response = await fetch(new URL("/upload", endpoint), {
+  const response = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
       Authorization: `Nostr ${toBase64Utf8(JSON.stringify(signedAuth))}`,
@@ -76,7 +104,10 @@ export async function uploadToBlossom({
   });
 
   if (!response.ok) {
-    throw new Error(`upload failed with ${response.status}`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `upload failed with ${response.status}${detail ? `: ${detail}` : ""}`
+    );
   }
 
   const descriptor = normalizeBlossomUpload(await response.json());
