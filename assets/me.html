@@ -19,8 +19,18 @@
     .brand{display:inline-flex;align-items:center;gap:12px;color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.3rem}
     .logomark{width:26px;height:26px;border-radius:50%;background:var(--green);border:2px solid var(--off);position:relative;display:inline-block}
     .logomark::after{content:"";position:absolute;inset:5px;background:var(--dark);border-radius:50%}
+    .nav-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
     .back{font-size:.88rem;color:var(--mint);border-bottom:1.5px solid rgba(208,251,203,.4);padding-bottom:1px}
     .back:hover{color:var(--green);border-bottom-color:var(--green)}
+    .auth-chip{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:8px 14px;border-radius:999px;border:2px solid rgba(208,251,203,.22);background:rgba(208,251,203,.04);color:var(--off);font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;line-height:1;cursor:pointer}
+    .auth-chip:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--green)}
+    .auth-chip:disabled{cursor:wait;opacity:.8}
+    .auth-chip .avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--green);color:var(--dark);border:1.5px solid rgba(7,36,27,.8);font-size:.92rem;font-weight:800;flex-shrink:0}
+    .auth-chip .avatar img{width:100%;height:100%;object-fit:cover;display:block}
+    .auth-chip .name{max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .auth-chip.logged-out{background:transparent;color:var(--mint)}
+    .auth-chip.logged-in{background:var(--off);color:var(--dark);border-color:var(--off)}
+    .auth-chip.logged-in:hover:not(:disabled){box-shadow:4px 4px 0 var(--yellow)}
     .hero{padding:32px 0 24px}
     .hero h1{font-size:clamp(2.2rem,6vw,3.8rem);color:var(--off);max-width:16ch}
     .hero h1 .punct{color:var(--green)}
@@ -39,11 +49,11 @@
     button.secondary{background:var(--off);color:var(--dark)}
     button.danger{background:var(--pink);color:var(--dark)}
     button:disabled{opacity:.55;cursor:not-allowed}
-    .you{display:flex;gap:16px;align-items:center;padding:22px 24px;background:var(--mint);color:var(--dark);border:2px solid var(--dark);border-radius:22px;box-shadow:6px 6px 0 var(--yellow);margin-bottom:20px;flex-wrap:wrap}
-    .you .avatar{width:56px;height:56px;border-radius:50%;background:var(--green);border:2px solid var(--dark);display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.5rem;color:var(--dark);flex-shrink:0}
-    .you .who strong{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.2rem;display:block}
-    .you .who code{font-size:.78rem;opacity:.7;word-break:break-all;font-family:'Inter',monospace}
-    .you .spacer{flex:1}
+    .tabs{display:grid;gap:16px}
+    .tab-buttons{display:flex;gap:10px;flex-wrap:wrap}
+    .tab-button{background:transparent;color:var(--mint);border:2px solid rgba(208,251,203,.25)}
+    .tab-button.active{background:var(--green);color:var(--dark);border-color:var(--green)}
+    .tab-panel{display:grid;gap:14px}
     .badges{list-style:none;display:grid;gap:14px;margin-top:22px}
     .badge{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;padding:20px 24px;background:var(--off);color:var(--dark);border:2px solid var(--dark);border-radius:22px;box-shadow:6px 6px 0 var(--green)}
     .badge.day{box-shadow:6px 6px 0 var(--green)}
@@ -57,8 +67,11 @@
     .badge.day .med{background:var(--green)}
     .badge.week .med{background:var(--yellow)}
     .badge.month .med{background:var(--pink)}
+    .badge .info{display:grid;gap:4px}
     .badge .info .name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.4rem;line-height:1.1}
     .badge .info .period{font-size:.88rem;opacity:.65;margin-top:4px;font-variant-numeric:tabular-nums}
+    .badge .info .issuer,.badge .info .description{font-size:.9rem;line-height:1.45;opacity:.72}
+    .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
     .empty{padding:48px 28px;text-align:center;border:2px dashed rgba(208,251,203,.35);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.1rem}
     .status{margin-top:14px;padding:12px 16px;border-radius:14px;font-size:.92rem;line-height:1.4}
     .status.ok{background:rgba(39,197,139,.12);color:var(--green);border:1px solid rgba(39,197,139,.4)}
@@ -70,7 +83,8 @@
     @media (max-width:640px){
       .badge{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:10px}
       .badge .actions{grid-column:1/-1}
-      .you .spacer{display:none}
+      .nav-actions{width:100%;justify-content:space-between}
+      .auth-chip .name{max-width:12ch}
     }
   </style>
 </head>
@@ -78,7 +92,10 @@
   <main class="shell">
     <nav class="topbar">
       <a class="brand" href="/"><span class="logomark" aria-hidden="true"></span><span>Divine Badges</span></a>
-      <a class="back" href="/">← All winners</a>
+      <div class="nav-actions">
+        <a class="back" href="/">← All winners</a>
+        <button class="auth-chip logged-out" id="auth-chip" type="button">Log in</button>
+      </div>
     </nav>
     <section class="hero">
       <h1>Your Diviner badges<span class="punct">.</span></h1>
@@ -90,351 +107,9 @@
     </footer>
   </main>
   <script type="module">
-    import {
-      NsecSigner, ExtensionSigner, BunkerNIP44Signer, OAuthSigner,
-      buildOAuthUrl, exchangeCode, createSessionStore, restoreSession,
-    } from 'https://esm.sh/divine-signer@0.4.2';
+    import { mountMePage } from "/app/views/me.js?v=2026-04-14-3";
 
-    const ISSUER = 'e21369e63b98f58de8aa171ec9794006eb0118891ae70895106d44525b718d2b';
-    const RELAY = 'wss://relay.divine.video';
-    const BADGE_META = {
-      'diviner-of-the-day':   { name: 'Diviner of the Day',   emoji: 'D', variant: 'day' },
-      'diviner-of-the-week':  { name: 'Diviner of the Week',  emoji: 'W', variant: 'week' },
-      'diviner-of-the-month': { name: 'Diviner of the Month', emoji: 'M', variant: 'month' },
-    };
-
-    const oauthStorage = {
-      savePkceState: s => localStorage.setItem('dbdg_pkce', JSON.stringify(s)),
-      loadPkceState: () => { try { return JSON.parse(localStorage.getItem('dbdg_pkce')); } catch { return null; } },
-      clearPkceState: () => localStorage.removeItem('dbdg_pkce'),
-      saveAuthorizationHandle: h => localStorage.setItem('dbdg_auth_handle', h),
-      loadAuthorizationHandle: () => localStorage.getItem('dbdg_auth_handle'),
-      clearAuthorizationHandle: () => localStorage.removeItem('dbdg_auth_handle'),
-    };
-    const oauthConfig = {
-      clientId: 'divine-badges',
-      redirectUri: (/\.divine\.video$/.test(window.location.hostname)
-        ? 'https://badges.divine.video/me'
-        : window.location.origin + '/me'),
-      storage: oauthStorage,
-    };
-    const sessions = createSessionStore(localStorage, 'dbdg_session');
-
-    // Divine-web shares session info across *.divine.video via a cookie at
-    // domain=.divine.video. When this page is hosted at a Divine subdomain we
-    // can hydrate from it without a single redirect.
-    function readDivineCookie(name) {
-      const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
-      if (!match) return null;
-      try { return JSON.parse(atob(decodeURIComponent(match[1]))); }
-      catch { return null; }
-    }
-    function sharedDivineSession() {
-      if (!/\.divine\.video$/.test(window.location.hostname)) return null;
-      const login = readDivineCookie('nostr_login'); // { type, pubkey, bunkerUri? }
-      const jwt = readDivineCookie('divine_jwt');    // { token, bunkerUrl?, ... }
-      const bunkerUrl = login?.bunkerUri || jwt?.bunkerUrl;
-      if (login?.type === 'bunker' && bunkerUrl) return { type: 'bunker', bunkerUrl };
-      if (login?.type === 'extension') return { type: 'extension' };
-      if (bunkerUrl) return { type: 'bunker', bunkerUrl };
-      return null;
-    }
-
-    let signer = null;
-    const view = document.getElementById('view');
-
-    const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const shorten = h => h ? h.slice(0, 8) + '…' + h.slice(-6) : '';
-
-    function showStatus(kind, msg) {
-      let el = document.getElementById('status');
-      if (!el) {
-        el = document.createElement('p');
-        el.id = 'status';
-        view.appendChild(el);
-      }
-      el.className = 'status ' + kind;
-      el.textContent = msg;
-      el.style.display = 'block';
-    }
-
-    function renderLogin() {
-      view.innerHTML = `
-        <div class="card">
-          <h2>Log in with Divine</h2>
-          <p>Use your Divine OAuth account. We ask for permission to read your pubkey and sign the badge-acceptance event on your behalf.</p>
-          <div class="row"><button class="primary" id="oauth-btn">Continue with Divine</button></div>
-        </div>
-        <div class="card">
-          <h2>Browser extension</h2>
-          <p>Works with Alby, nos2x, Flamingo, Soapbox Signer, or any NIP-07 extension. Keys never leave the extension.</p>
-          <div class="row"><button class="secondary" id="ext-btn">Log in with extension</button></div>
-        </div>
-        <div class="card">
-          <h2>Remote signer</h2>
-          <p>Paste a <code>bunker://</code> URL from Amber, nsec.app, or another NIP-46 signer.</p>
-          <div class="row">
-            <input id="bunker-input" placeholder="bunker://…" autocomplete="off" spellcheck="false">
-            <button class="secondary" id="bunker-btn">Connect</button>
-          </div>
-        </div>
-        <div class="card">
-          <h2>Paste an nsec</h2>
-          <p>Use this only in a browser you trust. The nsec stays in this tab — nothing is uploaded.</p>
-          <div class="row">
-            <input id="nsec-input" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false">
-            <button class="secondary" id="nsec-btn">Log in</button>
-          </div>
-        </div>
-      `;
-
-      document.getElementById('oauth-btn').onclick = async () => {
-        try { window.location.href = await buildOAuthUrl(oauthConfig); }
-        catch (e) { showStatus('err', 'OAuth error: ' + (e.message || e)); }
-      };
-      document.getElementById('ext-btn').onclick = async () => {
-        try {
-          const s = new ExtensionSigner();
-          await s.getPublicKey();
-          sessions.save({ type: 'extension' });
-          onLogin(s);
-        } catch (e) { showStatus('err', 'Extension error: ' + (e.message || e)); }
-      };
-      document.getElementById('bunker-btn').onclick = async () => {
-        const url = document.getElementById('bunker-input').value.trim();
-        if (!url) return;
-        showStatus('info', 'Connecting to bunker…');
-        try {
-          const s = await BunkerNIP44Signer.fromBunkerUrl(url);
-          sessions.save({ type: 'bunker', bunkerUrl: url });
-          onLogin(s);
-        } catch (e) { showStatus('err', 'Bunker error: ' + (e.message || e)); }
-      };
-      document.getElementById('nsec-btn').onclick = async () => {
-        const nsec = document.getElementById('nsec-input').value.trim();
-        if (!nsec) return;
-        try {
-          const s = new NsecSigner(nsec);
-          await s.getPublicKey();
-          sessions.save({ type: 'nsec', nsec });
-          onLogin(s);
-        } catch (e) { showStatus('err', 'nsec error: ' + (e.message || e)); }
-      };
-    }
-
-    async function onLogin(s) {
-      signer = s;
-      localStorage.removeItem('dbdg_logged_out');
-      if (s instanceof OAuthSigner) {
-        s.onTokenRefresh = ({ accessToken, refreshToken }) => {
-          sessions.save({ type: 'oauth', accessToken, refreshToken });
-        };
-      }
-      const pubkey = await s.getPublicKey();
-      renderLoaded(pubkey);
-      loadBadges(pubkey);
-    }
-
-    function renderLoaded(pubkey) {
-      view.innerHTML = `
-        <div class="you">
-          <div class="avatar">${esc(pubkey.charAt(0).toUpperCase())}</div>
-          <div class="who">
-            <strong>Logged in</strong>
-            <code>${esc(shorten(pubkey))}</code>
-          </div>
-          <span class="spacer"></span>
-          <button class="danger" id="logout-btn">Log out</button>
-        </div>
-        <p id="status" class="status info">Looking up your badges on the Divine relay…</p>
-        <ul class="badges" id="badges"></ul>
-      `;
-      document.getElementById('logout-btn').onclick = () => {
-        signer = null;
-        sessions.clear();
-        localStorage.setItem('dbdg_logged_out', '1');
-        renderLogin();
-      };
-    }
-
-    function relayQuery(filters, timeoutMs = 6000) {
-      return new Promise((resolve, reject) => {
-        const ws = new WebSocket(RELAY);
-        const subId = 'r' + Math.random().toString(36).slice(2, 10);
-        const events = [];
-        const done = val => { clearTimeout(timer); try { ws.close(); } catch {}; resolve(val); };
-        const timer = setTimeout(() => done(events), timeoutMs);
-        ws.onopen = () => ws.send(JSON.stringify(['REQ', subId, ...filters]));
-        ws.onmessage = ev => {
-          try {
-            const msg = JSON.parse(ev.data);
-            if (msg[0] === 'EVENT' && msg[1] === subId) events.push(msg[2]);
-            else if (msg[0] === 'EOSE' && msg[1] === subId) done(events);
-          } catch {}
-        };
-        ws.onerror = () => { clearTimeout(timer); reject(new Error('relay error')); };
-      });
-    }
-
-    function relayPublish(event) {
-      return new Promise((resolve, reject) => {
-        const ws = new WebSocket(RELAY);
-        const timer = setTimeout(() => { try { ws.close(); } catch {}; reject(new Error('relay timeout')); }, 8000);
-        ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
-        ws.onmessage = ev => {
-          try {
-            const msg = JSON.parse(ev.data);
-            if (msg[0] === 'OK' && msg[1] === event.id) {
-              clearTimeout(timer); try { ws.close(); } catch {};
-              if (msg[2]) resolve(); else reject(new Error(msg[3] || 'relay rejected event'));
-            }
-          } catch {}
-        };
-        ws.onerror = () => { clearTimeout(timer); reject(new Error('relay error')); };
-      });
-    }
-
-    async function loadBadges(pubkey) {
-      try {
-        const [awards, profileBadges] = await Promise.all([
-          relayQuery([{ kinds: [8], authors: [ISSUER], '#p': [pubkey] }]),
-          relayQuery([{ kinds: [30008], authors: [pubkey], '#d': ['profile_badges'], limit: 1 }]),
-        ]);
-        const profileEvent = profileBadges.sort((a, b) => b.created_at - a.created_at)[0] || null;
-        const acceptedIds = new Set();
-        if (profileEvent) {
-          for (const t of profileEvent.tags) if (t[0] === 'e') acceptedIds.add(t[1]);
-        }
-        renderBadges(pubkey, awards, acceptedIds, profileEvent);
-      } catch (e) {
-        showStatus('err', 'Could not load badges: ' + (e.message || e));
-      }
-    }
-
-    function renderBadges(pubkey, awards, acceptedIds, profileEvent) {
-      const statusEl = document.getElementById('status');
-      if (statusEl) statusEl.remove();
-      const list = document.getElementById('badges');
-      if (!awards.length) {
-        list.outerHTML = '<div class="empty">No Diviner badges here yet. Keep looping — we check every UTC morning.</div>';
-        return;
-      }
-      awards.sort((a, b) => b.created_at - a.created_at);
-      list.innerHTML = '';
-      for (const award of awards) {
-        const aTag = award.tags.find(t => t[0] === 'a');
-        const pTag = award.tags.find(t => t[0] === 'period');
-        const coord = aTag ? aTag[1] : '';
-        const dTag = coord.split(':')[2] || '';
-        const meta = BADGE_META[dTag] || { name: dTag || 'Diviner', emoji: '★', variant: 'day' };
-        const accepted = acceptedIds.has(award.id);
-        const li = document.createElement('li');
-        li.className = 'badge ' + meta.variant + (accepted ? ' accepted' : '');
-        li.innerHTML = `
-          <div class="med">${esc(meta.emoji)}</div>
-          <div class="info">
-            <div class="name">${esc(meta.name)}</div>
-            <div class="period">${esc(pTag ? pTag[1] : '—')}</div>
-          </div>
-          <div class="actions">
-            ${accepted
-              ? '<button disabled>Pinned ✓</button>'
-              : `<button class="primary" data-id="${esc(award.id)}" data-coord="${esc(coord)}">Pin to profile</button>`}
-          </div>
-        `;
-        list.appendChild(li);
-      }
-      list.querySelectorAll('button[data-id]').forEach(btn => {
-        btn.onclick = () => acceptBadge(pubkey, btn.dataset.id, btn.dataset.coord, acceptedIds, profileEvent, btn);
-      });
-    }
-
-    async function acceptBadge(pubkey, awardId, coord, acceptedIds, profileEvent, btn) {
-      btn.disabled = true;
-      btn.textContent = 'Signing…';
-      try {
-        const pairs = [];
-        if (profileEvent) {
-          let cur = null;
-          for (const t of profileEvent.tags) {
-            if (t[0] === 'a') { if (cur) pairs.push(cur); cur = { a: t[1], relay: t[2] }; }
-            else if (t[0] === 'e' && cur) { cur.e = t[1]; cur.eRelay = t[2]; }
-          }
-          if (cur) pairs.push(cur);
-        }
-        pairs.push({ a: coord, e: awardId, eRelay: RELAY });
-        const tags = [['d', 'profile_badges']];
-        for (const p of pairs) {
-          if (p.a) tags.push(p.relay ? ['a', p.a, p.relay] : ['a', p.a]);
-          if (p.e) tags.push(p.eRelay ? ['e', p.e, p.eRelay] : ['e', p.e]);
-        }
-        const event = await signer.signEvent({
-          kind: 30008,
-          content: '',
-          tags,
-          created_at: Math.floor(Date.now() / 1000),
-        });
-        btn.textContent = 'Publishing…';
-        await relayPublish(event);
-        btn.textContent = 'Pinned ✓';
-        btn.classList.remove('primary');
-        btn.closest('.badge').classList.add('accepted');
-        acceptedIds.add(awardId);
-      } catch (e) {
-        btn.disabled = false;
-        btn.textContent = 'Pin to profile';
-        alert('Could not pin badge: ' + (e.message || e));
-      }
-    }
-
-    async function boot() {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('code');
-      const state = params.get('state');
-      if (code && state) {
-        try {
-          const { signer: s, accessToken, refreshToken } = await exchangeCode(code, state, oauthConfig);
-          sessions.save({ type: 'oauth', accessToken, refreshToken });
-          window.history.replaceState({}, '', window.location.pathname);
-          await onLogin(s);
-          return;
-        } catch (e) {
-          oauthStorage.clearPkceState();
-          window.history.replaceState({}, '', window.location.pathname);
-          renderLogin();
-          showStatus('err', 'OAuth error: ' + (e.message || e));
-          return;
-        }
-      }
-      const stored = sessions.load();
-      if (stored) {
-        try {
-          const s = await restoreSession(stored);
-          await onLogin(s);
-          return;
-        } catch { sessions.clear(); }
-      }
-      // Hydrate from divine-web's cross-subdomain cookie when we're on
-      // *.divine.video — no OAuth bounce, no picker.
-      const explicitlyLoggedOut = localStorage.getItem('dbdg_logged_out') === '1';
-      if (!explicitlyLoggedOut) {
-        const shared = sharedDivineSession();
-        if (shared) {
-          try {
-            const s = await restoreSession(shared);
-            sessions.save(shared);
-            await onLogin(s);
-            return;
-          } catch {}
-        }
-      }
-      renderLogin();
-    }
-
-    boot().catch(e => {
-      renderLogin();
-      showStatus('err', 'Startup error: ' + (e.message || e));
-    });
+    mountMePage();
   </script>
 </body>
 </html>
