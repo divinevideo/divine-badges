@@ -68,21 +68,28 @@ export function decodeNpub(npub) {
 }
 
 export function normalizeProfileId(value) {
-  const normalized = value.trim();
+  const normalized = value.trim().toLowerCase();
+  const strippedAt = normalized.replace(/^@+/, "");
   if (/^[0-9a-f]{64}$/i.test(normalized)) {
     return { type: "pubkey", value: normalized.toLowerCase() };
   }
   if (normalized.startsWith("npub1")) {
     return { type: "pubkey", value: decodeNpub(normalized) };
   }
-  if (normalized.endsWith(".divine.video")) {
+  if (strippedAt.endsWith(".divine.video")) {
     return {
       type: "nip05",
-      value: `${normalized.replace(/\.divine\.video$/i, "").toLowerCase()}@divine.video`,
+      value: `${strippedAt.replace(/\.divine\.video$/i, "")}@divine.video`,
     };
   }
-  if (normalized.includes("@")) {
-    return { type: "nip05", value: normalized.toLowerCase() };
+  if (/^[a-z0-9][a-z0-9._-]*$/i.test(strippedAt) && !strippedAt.includes("@")) {
+    return {
+      type: "nip05",
+      value: `${strippedAt}@divine.video`,
+    };
+  }
+  if (strippedAt.includes("@")) {
+    return { type: "nip05", value: strippedAt };
   }
   throw new Error("unsupported profile identifier");
 }

@@ -94,6 +94,27 @@ test("decodeNpub converts npub to a hex pubkey", () => {
   assert.equal(normalizeProfileId(npub).value, hex);
 });
 
+test("normalizeProfileId accepts a bare Divine handle", () => {
+  assert.deepEqual(normalizeProfileId("kirstenswasey"), {
+    type: "nip05",
+    value: "kirstenswasey@divine.video",
+  });
+});
+
+test("normalizeProfileId accepts a leading-at Divine handle", () => {
+  assert.deepEqual(normalizeProfileId("@kirstenswasey"), {
+    type: "nip05",
+    value: "kirstenswasey@divine.video",
+  });
+});
+
+test("normalizeProfileId accepts an at-prefixed Divine subdomain", () => {
+  assert.deepEqual(normalizeProfileId("@kirstenswasey.divine.video"), {
+    type: "nip05",
+    value: "kirstenswasey@divine.video",
+  });
+});
+
 test("parseBadgeCoordinate reads canonical coordinates", () => {
   assert.deepEqual(parseBadgeCoordinate("30009:issuer-pubkey:diviner-of-the-day"), {
     kind: 30009,
