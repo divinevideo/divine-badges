@@ -5,6 +5,14 @@ import {
   PROFILE_BADGES_D,
 } from "./constants.js?v=2026-04-14-1";
 
+export function deriveBadgeSlug(name) {
+  return (name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function findTag(tags, key) {
   return tags.find((tag) => tag[0] === key)?.[1];
 }
@@ -96,24 +104,30 @@ export function buildHideProfileBadgesEvent({
 
 export function buildBadgeDefinitionEvent({
   pubkey,
+  identifier,
   slug,
   name,
   description,
+  imageUrl,
   image,
+  thumbUrl,
   thumb,
   createdAt,
 }) {
+  const resolvedIdentifier = identifier || slug;
+  const resolvedImage = imageUrl || image || "";
+  const resolvedThumb = thumbUrl || thumb || "";
   return {
     kind: BADGE_DEFINITION,
     pubkey,
     content: "",
     created_at: createdAt,
     tags: [
-      ["d", slug],
+      ["d", resolvedIdentifier],
       ["name", name],
       ["description", description || ""],
-      ["image", image || ""],
-      ["thumb", thumb || ""],
+      ["image", resolvedImage],
+      ["thumb", resolvedThumb],
     ],
   };
 }

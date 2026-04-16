@@ -6,6 +6,8 @@ import {
   buildAcceptProfileBadgesEvent,
   buildAwardedBadgeRecords,
   buildBadgeAwardEvent,
+  buildBadgeDefinitionEvent,
+  deriveBadgeSlug,
   buildHideProfileBadgesEvent,
   buildProfileBadgeTags,
   coordinateFromBadgeDefinition,
@@ -229,4 +231,31 @@ test("buildBadgeAwardEvent deduplicates recipients", () => {
       ],
     }
   );
+});
+
+test("deriveBadgeSlug normalizes badge names into canonical identifiers", () => {
+  assert.equal(deriveBadgeSlug("Diviner of the Day"), "diviner-of-the-day");
+});
+
+test("buildBadgeDefinitionEvent uses explicit image and thumb URLs", () => {
+  const event = buildBadgeDefinitionEvent({
+    pubkey: "abc123",
+    identifier: "diviner-of-the-day",
+    name: "Diviner of the Day",
+    description: "Awarded daily",
+    imageUrl: "https://media.divine.video/image.webp",
+    thumbUrl: "https://media.divine.video/thumb.webp",
+    createdAt: 123,
+  });
+
+  assert.equal(event.kind, 30009);
+  assert.equal(event.pubkey, "abc123");
+  assert.equal(event.created_at, 123);
+  assert.deepEqual(event.tags, [
+    ["d", "diviner-of-the-day"],
+    ["name", "Diviner of the Day"],
+    ["description", "Awarded daily"],
+    ["image", "https://media.divine.video/image.webp"],
+    ["thumb", "https://media.divine.video/thumb.webp"],
+  ]);
 });
