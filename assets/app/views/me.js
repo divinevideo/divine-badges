@@ -4,11 +4,14 @@ import {
   DIVINE_RELAY,
   PROFILE_BADGES,
   PROFILE_BADGES_D,
+  RELAY_LIST_METADATA,
 } from "/app/nostr/constants.js?v=2026-04-14-3";
 import {
+  discoverReadRelays,
   newestFirst,
   relayPublish,
   relayQuery,
+  relayQueryMany,
 } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
   beginDivineOAuth,
@@ -211,9 +214,14 @@ async function onLogin(nextSigner) {
 async function loadBadges(pubkey) {
   const root = getView();
   try {
+    const profileReadRelays = await discoverReadRelays({
+      pubkeys: [pubkey],
+      seedRelays: [DIVINE_RELAY],
+      relayListKind: RELAY_LIST_METADATA,
+    });
     const [awardEvents, profileBadges, createdBadges] = await Promise.all([
-      relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
-      relayQuery(DIVINE_RELAY, [
+      relayQueryMany(profileReadRelays, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
+      relayQueryMany(profileReadRelays, [
         {
           kinds: [PROFILE_BADGES],
           authors: [pubkey],
@@ -221,7 +229,7 @@ async function loadBadges(pubkey) {
           limit: 1,
         },
       ]),
-      relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
+      relayQueryMany(profileReadRelays, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
     ]);
     const profileEvent = newestFirst(profileBadges)[0] || null;
     const coordinates = new Set(
@@ -234,9 +242,14 @@ async function loadBadges(pubkey) {
     }
     const definitionAuthors = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[1]))];
     const definitionIds = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[2]))];
+    const definitionReadRelays = await discoverReadRelays({
+      pubkeys: definitionAuthors,
+      seedRelays: profileReadRelays,
+      relayListKind: RELAY_LIST_METADATA,
+    });
     const awardedBadgeDefinitions =
       definitionAuthors.length && definitionIds.length
-        ? await relayQuery(DIVINE_RELAY, [
+        ? await relayQueryMany(definitionReadRelays, [
             {
               kinds: [BADGE_DEFINITION],
               authors: definitionAuthors,

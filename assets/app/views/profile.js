@@ -4,11 +4,13 @@ import {
   DIVINE_RELAY,
   PROFILE_BADGES,
   PROFILE_BADGES_D,
+  RELAY_LIST_METADATA,
 } from "/app/nostr/constants.js?v=2026-04-14-3";
 import {
+  discoverReadRelays,
   newestFirst,
   relayPublish,
-  relayQuery,
+  relayQueryMany,
 } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
   beginDivineOAuth,
@@ -121,9 +123,14 @@ async function loadPublicProfile(pubkey) {
 }
 
 async function loadBadgeState(pubkey) {
+  const profileReadRelays = await discoverReadRelays({
+    pubkeys: [pubkey],
+    seedRelays: [DIVINE_RELAY],
+    relayListKind: RELAY_LIST_METADATA,
+  });
   const [awardEvents, profileBadges, createdBadges] = await Promise.all([
-    relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
-    relayQuery(DIVINE_RELAY, [
+    relayQueryMany(profileReadRelays, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
+    relayQueryMany(profileReadRelays, [
       {
         kinds: [PROFILE_BADGES],
         authors: [pubkey],
@@ -131,7 +138,7 @@ async function loadBadgeState(pubkey) {
         limit: 1,
       },
     ]),
-    relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
+    relayQueryMany(profileReadRelays, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
   ]);
   const profileEvent = newestFirst(profileBadges)[0] || null;
   const coordinates = new Set(awardEvents.map((award) => findTag(award.tags, "a")).filter(Boolean));
@@ -141,9 +148,14 @@ async function loadBadgeState(pubkey) {
   acceptedCoordinates.forEach((coordinate) => coordinates.add(coordinate));
   const authors = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[1]))];
   const identifiers = [...new Set([...coordinates].map((coordinate) => coordinate.split(":")[2]))];
+  const definitionReadRelays = await discoverReadRelays({
+    pubkeys: authors,
+    seedRelays: profileReadRelays,
+    relayListKind: RELAY_LIST_METADATA,
+  });
   const referencedDefinitions =
     authors.length && identifiers.length
-      ? await relayQuery(DIVINE_RELAY, [
+      ? await relayQueryMany(definitionReadRelays, [
           {
             kinds: [BADGE_DEFINITION],
             authors,

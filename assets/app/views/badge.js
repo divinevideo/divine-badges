@@ -2,10 +2,12 @@ import {
   BADGE_AWARD,
   BADGE_DEFINITION,
   DIVINE_RELAY,
+  RELAY_LIST_METADATA,
 } from "/app/nostr/constants.js?v=2026-04-14-3";
 import {
+  discoverReadRelays,
   relayPublish,
-  relayQuery,
+  relayQueryMany,
 } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
   beginDivineOAuth,
@@ -105,15 +107,20 @@ async function restoreOptionalSession() {
 async function loadBadgePageState() {
   const coordinate = parseBadgeCoordinate(routeCoordinate());
   const coordinateValue = `${coordinate.kind}:${coordinate.pubkey}:${coordinate.identifier}`;
+  const badgeReadRelays = await discoverReadRelays({
+    pubkeys: [coordinate.pubkey],
+    seedRelays: [DIVINE_RELAY],
+    relayListKind: RELAY_LIST_METADATA,
+  });
   const [definitions, awards, issuer] = await Promise.all([
-    relayQuery(DIVINE_RELAY, [
+    relayQueryMany(badgeReadRelays, [
       {
         kinds: [BADGE_DEFINITION],
         authors: [coordinate.pubkey],
         "#d": [coordinate.identifier],
       },
     ]),
-    relayQuery(DIVINE_RELAY, [{ kinds: [BADGE_AWARD], "#a": [coordinateValue] }]),
+    relayQueryMany(badgeReadRelays, [{ kinds: [BADGE_AWARD], "#a": [coordinateValue] }]),
     loadDivineProfile(coordinate.pubkey),
   ]);
   const badge = definitions[0];
