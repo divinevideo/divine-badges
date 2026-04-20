@@ -92,6 +92,7 @@ mod wasm_entry {
     const APP_NOSTR_BADGES_JS: &str = include_str!("../assets/app/nostr/badges.js");
     const APP_NOSTR_CONSTANTS_JS: &str = include_str!("../assets/app/nostr/constants.js");
     const APP_NOSTR_IDENTITY_JS: &str = include_str!("../assets/app/nostr/identity.js");
+    const APP_NOSTR_PUBLISH_JS: &str = include_str!("../assets/app/nostr/publish.js");
     const APP_NOSTR_RELAY_JS: &str = include_str!("../assets/app/nostr/relay.js");
     const APP_VIEWS_BADGE_JS: &str = include_str!("../assets/app/views/badge.js");
     const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
@@ -132,6 +133,7 @@ mod wasm_entry {
             PublicAppAsset::NostrBadgesJs => APP_NOSTR_BADGES_JS,
             PublicAppAsset::NostrConstantsJs => APP_NOSTR_CONSTANTS_JS,
             PublicAppAsset::NostrIdentityJs => APP_NOSTR_IDENTITY_JS,
+            PublicAppAsset::NostrPublishJs => APP_NOSTR_PUBLISH_JS,
             PublicAppAsset::NostrRelayJs => APP_NOSTR_RELAY_JS,
             PublicAppAsset::ViewsBadgeJs => APP_VIEWS_BADGE_JS,
             PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,

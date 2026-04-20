@@ -68,6 +68,10 @@ fn classify_public_route_matches_shared_app_assets() {
         classify_public_route("/app/views/new_text_fields.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::ViewsNewTextFieldsJs)
     );
+    assert_eq!(
+        classify_public_route("/app/nostr/publish.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::NostrPublishJs)
+    );
     assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
     assert_eq!(
         classify_public_route("/p/npub1example"),
