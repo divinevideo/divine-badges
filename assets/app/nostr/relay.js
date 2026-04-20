@@ -104,6 +104,27 @@ export async function discoverReadRelays(
   return [...new Set([...baseRelays, ...discovered])];
 }
 
+export async function discoverWriteRelays(
+  { pubkeys, seedRelays, relayListKind = 10002 },
+  queryFn = relayQueryMany
+) {
+  const uniquePubkeys = [...new Set((pubkeys || []).filter(Boolean))];
+  const baseRelays = [...new Set((seedRelays || []).filter(Boolean))];
+  if (!uniquePubkeys.length) {
+    return baseRelays;
+  }
+  const relayListEvents = await queryFn(baseRelays, [
+    {
+      kinds: [relayListKind],
+      authors: uniquePubkeys,
+    },
+  ]);
+  const discovered = relayListEvents.flatMap((event) =>
+    relayUrlsFromRelayListEvent(event, "write")
+  );
+  return [...new Set([...baseRelays, ...discovered])];
+}
+
 export function relayPublish(relayUrl, nostrEvent, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(relayUrl);
@@ -135,4 +156,35 @@ export function relayPublish(relayUrl, nostrEvent, timeoutMs = 8000) {
       reject(new Error("relay error"));
     };
   });
+}
+
+export async function relayPublishMany(
+  relayUrls,
+  nostrEvent,
+  timeoutMs = 8000,
+  publishFn = relayPublish
+) {
+  const uniqueRelayUrls = [...new Set((relayUrls || []).filter(Boolean))];
+  if (!uniqueRelayUrls.length) {
+    return { ok: [], failed: [] };
+  }
+  const settled = await Promise.allSettled(
+    uniqueRelayUrls.map((relayUrl) => publishFn(relayUrl, nostrEvent, timeoutMs))
+  );
+  const ok = [];
+  const failed = [];
+  settled.forEach((result, index) => {
+    const relayUrl = uniqueRelayUrls[index];
+    if (result.status === "fulfilled") {
+      ok.push(relayUrl);
+    } else {
+      const err = result.reason;
+      failed.push({ relayUrl, error: err?.message || String(err) });
+    }
+  });
+  return { ok, failed };
+}
+
+export function hasAnyRelayPublishSuccess(result) {
+  return Boolean(result?.ok?.length);
 }
