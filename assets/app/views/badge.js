@@ -6,7 +6,6 @@ import {
 } from "/app/nostr/constants.js?v=2026-04-14-3";
 import {
   discoverReadRelays,
-  relayPublish,
   relayQueryMany,
 } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
@@ -23,6 +22,11 @@ import {
   parseRecipientInput,
   shouldOpenAwardPanel,
 } from "/app/nostr/badges.js?v=2026-04-14-3";
+import {
+  publishSignedToWriteRelays,
+  publishSucceeded,
+  summarizePublishResult,
+} from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
   parseBadgeCoordinate,
   resolveProfileId,
@@ -391,8 +395,11 @@ async function publishAward(state, awardState) {
     recipients: awardState.resolved.map((entry) => entry.pubkey),
     createdAt: Math.floor(Date.now() / 1000),
   });
-  const signed = await signer.signEvent(event);
-  await relayPublish(DIVINE_RELAY, signed);
+  return publishSignedToWriteRelays({
+    pubkey: signerPubkey,
+    unsignedEvent: event,
+    signer,
+  });
 }
 
 function readAwardInputs(awardState) {
@@ -465,8 +472,28 @@ function bindAwardControls(state, awardState, rerender) {
       clearStatus();
       rerender();
       try {
-        await publishAward(state, awardState);
-        showStatus(getView(), "info", `Awarded to ${awardState.resolved.length} recipient(s).`);
+        const outcome = await publishAward(state, awardState);
+        if (!publishSucceeded(outcome)) {
+          awardState.publishing = false;
+          rerender();
+          showStatus(
+            getView(),
+            "err",
+            `Could not award badge: ${summarizePublishResult(outcome)}`
+          );
+          return;
+        }
+        const recipientCount = awardState.resolved.length;
+        const baseMsg = `Awarded to ${recipientCount} recipient(s).`;
+        if (outcome.result.failed.length > 0) {
+          showStatus(
+            getView(),
+            "info",
+            `${baseMsg} ${summarizePublishResult(outcome)}`
+          );
+        } else {
+          showStatus(getView(), "info", baseMsg);
+        }
         window.setTimeout(() => window.location.reload(), 800);
       } catch (error) {
         awardState.publishing = false;
