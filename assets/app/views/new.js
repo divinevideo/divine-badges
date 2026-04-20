@@ -9,8 +9,8 @@ import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
   buildBadgeDefinitionEvent,
   buildNewBadgePreviewModel,
-  coordinateFromBadgeDefinition,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+  coordinatePathFromBadge,
+} from "/app/nostr/badges.js?v=2026-04-20-1";
 import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
 import { clearStatus, esc, replaceView, showStatus } from "/app/views/common.js?v=2026-04-14-3";
 import {
@@ -367,8 +367,7 @@ async function publishBadge() {
     });
     const signed = await signer.signEvent(event);
     await relayPublish(DIVINE_RELAY, signed);
-    const coordinate = coordinateFromBadgeDefinition(signed);
-    window.location.href = `/b/${encodeURIComponent(coordinate)}?award=1`;
+    window.location.href = `${coordinatePathFromBadge(signed)}?award=1`;
   } catch (error) {
     state.publishing = false;
     renderStudio();

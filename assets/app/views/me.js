@@ -29,9 +29,10 @@ import {
   buildAwardedBadgeRecords,
   buildHideProfileBadgesEvent,
   coordinateFromBadgeDefinition,
+  coordinatePathFromBadge,
   extractProfileBadgePairs,
   findTag,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+} from "/app/nostr/badges.js?v=2026-04-20-1";
 import {
   clearStatus,
   esc,
@@ -294,11 +295,15 @@ function badgeCardMarkup(record, actions = "") {
   const period = findTag(record.award?.tags || [], "period");
   const issuer = record.badge?.pubkey ? shorten(record.badge.pubkey) : "";
   const description = findTag(record.badge?.tags || [], "description");
+  const badgePath = record.badge ? coordinatePathFromBadge(record.badge) : null;
+  const nameMarkup = badgePath
+    ? `<a class="name" href="${esc(badgePath)}">${esc(meta.name)}</a>`
+    : `<div class="name">${esc(meta.name)}</div>`;
   return `
     <li class="badge ${meta.variant}${record.accepted ? " accepted" : ""}">
       <div class="med">${esc(meta.emoji)}</div>
       <div class="info">
-        <div class="name">${esc(meta.name)}</div>
+        ${nameMarkup}
         <div class="period">${esc(period || "—")}</div>
         ${issuer ? `<div class="issuer">Issuer: ${esc(issuer)}</div>` : ""}
         ${description ? `<div class="description">${esc(description)}</div>` : ""}

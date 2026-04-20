@@ -9,6 +9,7 @@ import {
   buildBadgeDefinitionEvent,
   buildNewBadgePreviewModel,
   canAwardBadge,
+  coordinatePathFromBadge,
   deriveBadgeSlug,
   buildHideProfileBadgesEvent,
   parseRecipientInput,
@@ -17,6 +18,7 @@ import {
   extractProfileBadgePairs,
   shouldOpenAwardPanel,
 } from "./badges.js";
+import { parseNaddr } from "./identity.js";
 
 test("extractProfileBadgePairs preserves ordered a/e pairs", () => {
   const profileEvent = {
@@ -133,6 +135,20 @@ test("coordinateFromBadgeDefinition builds the canonical a-tag value", () => {
     }),
     "30009:issuer:diviner-of-the-day"
   );
+});
+
+test("coordinatePathFromBadge builds a canonical /b/ URL", () => {
+  const path = coordinatePathFromBadge({
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"], ["name", "Scene Stealer"]],
+  });
+  assert.ok(path.startsWith("/b/"));
+  const naddr = decodeURIComponent(path.slice(3));
+  const parsed = parseNaddr(naddr);
+  assert.equal(parsed.kind, 30009);
+  assert.equal(parsed.pubkey, "0".repeat(64));
+  assert.equal(parsed.identifier, "scene-stealer");
 });
 
 test("buildAwardedBadgeRecords joins awards to badge definitions", () => {

@@ -27,8 +27,9 @@ import {
   buildAwardedBadgeRecords,
   buildHideProfileBadgesEvent,
   coordinateFromBadgeDefinition,
+  coordinatePathFromBadge,
   findTag,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+} from "/app/nostr/badges.js?v=2026-04-20-1";
 import { resolveProfileId } from "/app/nostr/identity.js?v=2026-04-14-3";
 import {
   clearStatus,
@@ -187,11 +188,12 @@ function badgeCardMarkup(record, actions = "") {
   const description = findTag(record.badge.tags, "description");
   const period = findTag(record.award?.tags || [], "period");
   const issuer = findTag(record.badge.tags, "name") ? "Divine badge" : "Badge";
+  const badgePath = coordinatePathFromBadge(record.badge);
   return `
     <li class="badge">
       <div class="med">${esc(meta.emoji)}</div>
       <div class="info">
-        <a class="name" href="/b/${encodeURIComponent(coordinate)}">${esc(meta.name)}</a>
+        <a class="name" href="${esc(badgePath)}">${esc(meta.name)}</a>
         ${period ? `<div class="period">${esc(period)}</div>` : ""}
         <div class="issuer">${esc(issuer)}</div>
         ${description ? `<div class="description">${esc(description)}</div>` : ""}

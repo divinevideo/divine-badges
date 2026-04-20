@@ -4,6 +4,7 @@ import {
   PROFILE_BADGES,
   PROFILE_BADGES_D,
 } from "./constants.js?v=2026-04-14-1";
+import { canonicalBadgePath } from "./identity.js?v=2026-04-20-1";
 
 export function deriveBadgeSlug(name) {
   return (name || "")
@@ -51,6 +52,14 @@ export function findTag(tags, key) {
 
 export function coordinateFromBadgeDefinition(badge) {
   return `${badge.kind}:${badge.pubkey}:${findTag(badge.tags, "d")}`;
+}
+
+export function coordinatePathFromBadge(badge) {
+  return canonicalBadgePath({
+    kind: badge.kind,
+    pubkey: badge.pubkey,
+    identifier: findTag(badge.tags, "d"),
+  });
 }
 
 export function extractProfileBadgePairs(profileEvent) {
