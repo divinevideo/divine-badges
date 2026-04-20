@@ -9,6 +9,7 @@ import {
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
   buildBadgeViewerCollectionState,
+  buildEditedBadgeDefinitionEvent,
   buildNewBadgePreviewModel,
   canAwardBadge,
   coordinatePathFromBadge,
@@ -280,6 +281,52 @@ test("buildBadgeDefinitionEvent uses explicit image and thumb URLs", () => {
     ["image", "https://media.divine.video/image.webp"],
     ["thumb", "https://media.divine.video/thumb.webp"],
   ]);
+});
+
+test("buildEditedBadgeDefinitionEvent preserves existing identifier", () => {
+  const existing = {
+    kind: 30009,
+    pubkey: "author",
+    created_at: 100,
+    tags: [
+      ["d", "scene-stealer"],
+      ["name", "Old name"],
+      ["description", "Old desc"],
+      ["image", "https://old.example/img"],
+      ["thumb", "https://old.example/thumb"],
+      ["stale", "whatever"], // unrelated tag
+    ],
+    content: "ignore",
+  };
+  const edited = buildEditedBadgeDefinitionEvent({
+    existingEvent: existing,
+    pubkey: "author",
+    name: "New name",
+    description: "New desc",
+    imageUrl: "https://new.example/img",
+    thumbUrl: "https://new.example/thumb",
+    createdAt: 200,
+  });
+  assert.equal(edited.kind, 30009);
+  assert.equal(edited.pubkey, "author");
+  assert.equal(edited.content, "");
+  assert.equal(edited.created_at, 200);
+  // d is preserved
+  assert.deepEqual(edited.tags[0], ["d", "scene-stealer"]);
+  // name/description/image/thumb are replaced with new values
+  assert.equal(edited.tags.find((t) => t[0] === "name")?.[1], "New name");
+  assert.equal(edited.tags.find((t) => t[0] === "description")?.[1], "New desc");
+  assert.equal(edited.tags.find((t) => t[0] === "image")?.[1], "https://new.example/img");
+  assert.equal(edited.tags.find((t) => t[0] === "thumb")?.[1], "https://new.example/thumb");
+  // each of those tags appears exactly once (no duplication)
+  ["name", "description", "image", "thumb", "d"].forEach((key) => {
+    assert.equal(edited.tags.filter((t) => t[0] === key).length, 1, `exactly one ${key} tag`);
+  });
+});
+
+test("buildEditedBadgeDefinitionEvent rejects missing existing event", () => {
+  assert.throws(() => buildEditedBadgeDefinitionEvent({ pubkey: "a", name: "b", createdAt: 1 }), /existing/i);
+  assert.throws(() => buildEditedBadgeDefinitionEvent({ existingEvent: null, pubkey: "a", name: "b", createdAt: 1 }), /existing/i);
 });
 
 test("parseRecipientInput splits and deduplicates mixed separators", () => {

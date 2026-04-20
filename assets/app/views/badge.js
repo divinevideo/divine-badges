@@ -347,6 +347,10 @@ function badgePageMarkup(state, canAward, awardState) {
   const medal = badge.image
     ? `<img src="${esc(badge.image)}" alt="">`
     : `<span class="medal-letter">${esc(badge.mark)}</span>`;
+  const editHref = `/b/${encodeURIComponent(routeCoordinate())}/edit`;
+  const ownerActions = canAward
+    ? `<div class="owner-actions"><a class="edit-badge-link" href="${esc(editHref)}">Edit badge</a></div>`
+    : "";
   return `
     <div class="page">
       <section class="hero-card">
@@ -361,6 +365,7 @@ function badgePageMarkup(state, canAward, awardState) {
             ${heroMetaPill("Awarded", `${awardCount} ${awardCount === 1 ? "time" : "times"}`)}
             ${heroMetaPill("Kind", String(state.coordinate.kind))}
           </div>
+          ${ownerActions}
         </div>
         <div class="medal ${esc(badge.variant)}">${medal}</div>
       </section>

@@ -173,6 +173,37 @@ export function buildBadgeDefinitionEvent({
   };
 }
 
+export function buildEditedBadgeDefinitionEvent({
+  existingEvent,
+  pubkey,
+  name,
+  description,
+  imageUrl,
+  thumbUrl,
+  createdAt,
+}) {
+  if (!existingEvent) {
+    throw new Error("existingEvent is required to edit a badge definition");
+  }
+  const identifier = findTag(existingEvent.tags || [], "d");
+  if (!identifier) {
+    throw new Error("existing badge event is missing d tag");
+  }
+  return {
+    kind: BADGE_DEFINITION,
+    pubkey,
+    content: "",
+    created_at: createdAt,
+    tags: [
+      ["d", identifier],
+      ["name", name],
+      ["description", description || ""],
+      ["image", imageUrl || ""],
+      ["thumb", thumbUrl || ""],
+    ],
+  };
+}
+
 export function buildBadgeAwardEvent({ pubkey, badgeCoordinate, recipients, createdAt }) {
   const uniqueRecipients = [...new Set(recipients)];
   return {
