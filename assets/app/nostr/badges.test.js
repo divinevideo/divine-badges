@@ -9,6 +9,7 @@ import {
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
   buildBadgeViewerCollectionState,
+  buildCreatedBadgeActions,
   buildEditedBadgeDefinitionEvent,
   buildFollowAwardeesEvent,
   buildNewBadgePreviewModel,
@@ -704,6 +705,36 @@ test("buildFollowAwardeesEvent uses contactListEvent.content and kind 3", () => 
   assert.equal(event.content, "{\"wss://relay.example\":{\"read\":true,\"write\":true}}");
   assert.equal(event.created_at, 400);
   assert.deepEqual(event.tags, [["p", "alice"]]);
+});
+
+test("buildCreatedBadgeActions returns owner actions for badge author", () => {
+  const badge = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"], ["name", "Scene Stealer"]],
+  };
+  const actions = buildCreatedBadgeActions({ badge, isOwner: true });
+  assert.ok(actions.view.href.startsWith("/b/"));
+  assert.equal(actions.view.label, "View");
+  assert.ok(actions.edit.href.endsWith("/edit"));
+  assert.equal(actions.edit.label, "Edit");
+  assert.ok(actions.award.href.includes("award=1"));
+  assert.equal(actions.award.label, "Award");
+  assert.ok(actions.share.href.startsWith("/b/"));
+  assert.equal(actions.share.label, "Copy link");
+});
+
+test("buildCreatedBadgeActions omits owner-only actions for non-owners", () => {
+  const badge = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"]],
+  };
+  const actions = buildCreatedBadgeActions({ badge, isOwner: false });
+  assert.ok(actions.view);
+  assert.ok(actions.share);
+  assert.equal(actions.edit, null);
+  assert.equal(actions.award, null);
 });
 
 test("buildFollowAwardeesEvent defaults missing content to empty string", () => {

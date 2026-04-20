@@ -56,10 +56,14 @@
     .badge .info{display:grid;gap:4px}
     .badge .info .name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:1.4rem;line-height:1.05}
     .badge .info .period,.badge .info .issuer,.badge .info .description{font-size:.92rem;opacity:.72}
-    .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .badge .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
     .badge button{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;padding:10px 16px;border-radius:12px;border:2px solid rgba(7,36,27,.88);cursor:pointer}
     .badge button[data-action="accept"]{background:var(--green);color:var(--dark)}
     .badge button[data-action="hide"]{background:var(--off);color:var(--dark)}
+    .badge .actions a{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:.95rem;padding:8px 14px;border:2px solid rgba(7,36,27,.88);border-radius:12px;background:var(--off);color:var(--dark);text-decoration:none;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease}
+    .badge .actions a:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 rgba(39,197,139,.6)}
+    .badge .actions a.primary{background:var(--green);color:var(--dark)}
+    .badge .actions button[data-action="copy-link"]{background:var(--off);color:var(--dark)}
     .empty{padding:48px 28px;text-align:center;border:2px dashed rgba(208,251,203,.28);color:var(--mint);border-radius:22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:1.08rem}
     .status{margin-top:14px;padding:12px 16px;font-size:.92rem;line-height:1.4;border-radius:14px}
     .status.err{background:rgba(255,127,175,.14);color:var(--pink);border:1px solid rgba(255,127,175,.5)}

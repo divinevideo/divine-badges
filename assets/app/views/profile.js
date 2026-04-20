@@ -32,11 +32,12 @@ import {
   buildAcceptedBadgeRecords,
   buildAcceptProfileBadgesEvent,
   buildAwardedBadgeRecords,
+  buildCreatedBadgeActions,
   buildHideProfileBadgesEvent,
   coordinateFromBadgeDefinition,
   coordinatePathFromBadge,
   findTag,
-} from "/app/nostr/badges.js?v=2026-04-20-1";
+} from "/app/nostr/badges.js?v=2026-04-20-2";
 import { resolveProfileId } from "/app/nostr/identity.js?v=2026-04-14-3";
 import {
   clearStatus,
@@ -202,6 +203,59 @@ async function loadBadgeState(pubkey) {
   };
 }
 
+function renderCreatedBadgeActionsMarkup(actions) {
+  const parts = [];
+  if (actions.view) {
+    parts.push(
+      `<a class="secondary" href="${esc(actions.view.href)}">${esc(actions.view.label)}</a>`
+    );
+  }
+  if (actions.edit) {
+    parts.push(
+      `<a class="secondary" href="${esc(actions.edit.href)}">${esc(actions.edit.label)}</a>`
+    );
+  }
+  if (actions.award) {
+    parts.push(
+      `<a class="primary" href="${esc(actions.award.href)}">${esc(actions.award.label)}</a>`
+    );
+  }
+  if (actions.share) {
+    parts.push(
+      `<button type="button" class="secondary" data-action="copy-link" data-share-href="${esc(
+        actions.share.href
+      )}">${esc(actions.share.label)}</button>`
+    );
+  }
+  return parts.join("");
+}
+
+function wireCreatedBadgeActionHandlers(root) {
+  if (!root) return;
+  root.querySelectorAll('button[data-action="copy-link"]').forEach((button) => {
+    button.onclick = async () => {
+      const relative = button.dataset.shareHref || "";
+      const absolute = typeof window !== "undefined" && window.location
+        ? `${window.location.origin}${relative}`
+        : relative;
+      const originalLabel = button.textContent;
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(absolute);
+        } else {
+          throw new Error("clipboard unavailable");
+        }
+        button.textContent = "Copied!";
+      } catch {
+        button.textContent = "Copy failed";
+      }
+      setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 1000);
+    };
+  });
+}
+
 function badgeCardMarkup(record, actions = "") {
   const coordinate = record.coordinate || coordinateFromBadgeDefinition(record.badge);
   const badgeId = coordinate.split(":")[2];
@@ -293,17 +347,24 @@ function mountTabInteractions(pubkey, state, canEdit) {
       return;
     }
     if (tab === "created") {
-      panel.innerHTML = state.created.length
-        ? `<ul class="badges">${state.created
-            .map((badge) =>
-              badgeCardMarkup({
-                badge,
-                coordinate: coordinateFromBadgeDefinition(badge),
-                award: null,
-              })
-            )
-            .join("")}</ul>`
-        : '<div class="empty">No created badges here yet.</div>';
+      if (!state.created.length) {
+        panel.innerHTML = '<div class="empty">No created badges here yet.</div>';
+        return;
+      }
+      panel.innerHTML = `<ul class="badges">${state.created
+        .map((badge) => {
+          const actions = buildCreatedBadgeActions({ badge, isOwner: canEdit });
+          return badgeCardMarkup(
+            {
+              badge,
+              coordinate: coordinateFromBadgeDefinition(badge),
+              award: null,
+            },
+            renderCreatedBadgeActionsMarkup(actions)
+          );
+        })
+        .join("")}</ul>`;
+      wireCreatedBadgeActionHandlers(panel);
       return;
     }
     panel.innerHTML = state.awarded.length

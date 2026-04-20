@@ -63,6 +63,21 @@ export function coordinatePathFromBadge(badge) {
   });
 }
 
+export function buildCreatedBadgeActions({ badge, isOwner }) {
+  const base = coordinatePathFromBadge(badge);
+  const actions = {
+    view: { label: "View", href: base },
+    share: { label: "Copy link", href: base },
+    edit: null,
+    award: null,
+  };
+  if (isOwner) {
+    actions.edit = { label: "Edit", href: `${base}/edit` };
+    actions.award = { label: "Award", href: `${base}?award=1` };
+  }
+  return actions;
+}
+
 export function extractProfileBadgePairs(profileEvent) {
   const pairs = [];
   if (!profileEvent?.tags) {
