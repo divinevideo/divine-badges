@@ -82,3 +82,19 @@ fn classify_public_route_matches_shared_app_assets() {
         PublicRouteMatch::BadgePage
     );
 }
+
+#[test]
+fn classify_public_route_matches_badge_edit_page() {
+    assert_eq!(
+        classify_public_route("/b/naddr1example/edit"),
+        PublicRouteMatch::BadgeEditPage
+    );
+    assert_eq!(
+        classify_public_route("/b/naddr1example"),
+        PublicRouteMatch::BadgePage
+    );
+    assert_eq!(
+        classify_public_route("/app/views/edit_badge.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsEditBadgeJs)
+    );
+}

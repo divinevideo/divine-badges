@@ -26,6 +26,7 @@ mod wasm_entry {
             (Method::Get, PublicRouteMatch::NewPage) => serve_html_page(NEW_PAGE),
             (Method::Get, PublicRouteMatch::ProfilePage) => serve_html_page(PROFILE_PAGE),
             (Method::Get, PublicRouteMatch::BadgePage) => serve_html_page(BADGE_PAGE),
+            (Method::Get, PublicRouteMatch::BadgeEditPage) => serve_html_page(EDIT_BADGE_PAGE),
             (Method::Get, PublicRouteMatch::IssuerPubkey) => serve_pubkey(env).await,
             (Method::Get, PublicRouteMatch::AppAsset(asset)) => serve_app_asset(asset),
             (Method::Post, _) if path == "/admin/publish-profile" => {
@@ -84,6 +85,7 @@ mod wasm_entry {
     const ME_PAGE: &str = include_str!("../assets/me.html");
     const PROFILE_PAGE: &str = include_str!("../assets/profile.html");
     const BADGE_PAGE: &str = include_str!("../assets/badge.html");
+    const EDIT_BADGE_PAGE: &str = include_str!("../assets/edit_badge.html");
     const NEW_PAGE: &str = include_str!("../assets/new.html");
     const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
     const APP_AUTH_PROFILE_JS: &str = include_str!("../assets/app/auth/profile.js");
@@ -96,6 +98,7 @@ mod wasm_entry {
     const APP_NOSTR_RELAY_JS: &str = include_str!("../assets/app/nostr/relay.js");
     const APP_VIEWS_BADGE_JS: &str = include_str!("../assets/app/views/badge.js");
     const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
+    const APP_VIEWS_EDIT_BADGE_JS: &str = include_str!("../assets/app/views/edit_badge.js");
     const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
     const APP_VIEWS_ME_EMPTY_STATE_JS: &str = include_str!("../assets/app/views/me_empty_state.js");
     const APP_VIEWS_NEW_JS: &str = include_str!("../assets/app/views/new.js");
@@ -137,6 +140,7 @@ mod wasm_entry {
             PublicAppAsset::NostrRelayJs => APP_NOSTR_RELAY_JS,
             PublicAppAsset::ViewsBadgeJs => APP_VIEWS_BADGE_JS,
             PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,
+            PublicAppAsset::ViewsEditBadgeJs => APP_VIEWS_EDIT_BADGE_JS,
             PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
             PublicAppAsset::ViewsMeEmptyStateJs => APP_VIEWS_ME_EMPTY_STATE_JS,
             PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,
