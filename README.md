@@ -74,3 +74,24 @@ Deploy for real:
 ```bash
 npm run deploy
 ```
+
+## PR Preview Deploys
+
+Pull requests from branches in this repository upload a Cloudflare Worker preview version after native and wasm checks pass.
+
+Required GitHub repository secrets:
+
+```text
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+```
+
+Required GitHub repository variable, or secret if you prefer not to expose it:
+
+```text
+CLOUDFLARE_WORKERS_SUBDOMAIN
+```
+
+The workflow uses `wrangler versions upload --preview-alias pr-<number>` and comments the resulting `workers.dev` URL on the PR. It does not run `wrangler deploy` and does not change production traffic for `badges.divine.video`.
+
+Preview URLs are public unless protected in Cloudflare Access. Preview Workers use the bindings configured for this Worker, including the configured D1 binding.

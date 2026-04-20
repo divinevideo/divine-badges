@@ -1,6 +1,7 @@
 name = "divine-badges"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-04-13"
+preview_urls = true
 
 routes = [
   { pattern = "badges.divine.video/*", zone_name = "divine.video" }
