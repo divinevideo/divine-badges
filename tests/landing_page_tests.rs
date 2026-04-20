@@ -109,7 +109,10 @@ fn classify_public_route_matches_badge_edit_page() {
 
 #[test]
 fn classify_public_route_matches_relays_page_and_asset() {
-    assert_eq!(classify_public_route("/relays"), PublicRouteMatch::RelaysPage);
+    assert_eq!(
+        classify_public_route("/relays"),
+        PublicRouteMatch::RelaysPage
+    );
     assert_eq!(
         classify_public_route("/app/views/relays.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::ViewsRelaysJs)

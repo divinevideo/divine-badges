@@ -43,6 +43,23 @@ npm run d1:migrate:remote
 
 If you are updating an existing database, make sure migration `0003_winner_nip05.sql` is applied so public profile links can prefer Divine `nip05` handles.
 
+## Badges client features
+
+- Divine runs a scheduled official issuer Worker that publishes the Diviner-of-the-day/week/month awards to `DIVINE_RELAY`.
+- Any logged-in Divine user can create their own badges (`kind:30009`) and award them (`kind:8`) via `/new`, `/me`, and `/b/:coord`.
+- `/me` shows accepted / awarded / created tabs for the signed-in user. Owners of a created badge see view/award/edit/share actions on each created card.
+- Owners of a badge can edit its definition at `/b/:coord/edit`. Edits preserve the existing `d` identifier (replaceable event).
+- Read/write relay behavior:
+  - Reads discover NIP-65 `kind:10002` relays from badge authors, profile authors, and the viewer — plus the `DIVINE_RELAY` seed.
+  - Writes publish signed events to the viewer's discovered write relays plus `DIVINE_RELAY` plus any local overrides from `/relays`.
+  - Partial publish failures are surfaced without hiding successful publishes.
+- Relay settings live at `/relays`. Users can add/remove local relay overrides (`ws://` or `wss://`), see discovered relays, publish a `kind:10002` relay list, and run a per-relay connectivity check.
+- Badge media uploads go through Blossom on `media.divine.video` via the authenticated signer.
+- Share/copy links use canonical `naddr` identifiers (NIP-19). Raw coordinate URLs (`kind:pubkey:d`) still resolve for backwards compatibility.
+- Non-Divine Nostr users show kind:0 profile metadata fallback so awardee cards and issuer lookups aren't blank.
+- Badge descriptions render a small safe Markdown subset (paragraphs, line breaks, bold, inline code, safe `http(s)` links).
+- Contact list follow: on a badge detail page, signed-in viewers can publish a `kind:3` update that adds the awardees to their follow list. Existing follows and content are preserved.
+
 ## Verification
 
 Run the native and wasm checks before deploy:
