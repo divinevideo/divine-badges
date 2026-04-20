@@ -11,7 +11,8 @@ import {
   newestFirst,
   relayPublish,
   relayQueryMany,
-} from "/app/nostr/relay.js?v=2026-04-14-3";
+  relayQueryManyDetailed,
+} from "/app/nostr/relay.js?v=2026-04-20-1";
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
@@ -154,9 +155,9 @@ async function loadBadgeState(pubkey) {
     seedRelays: [DIVINE_RELAY],
     relayListKind: RELAY_LIST_METADATA,
   });
-  const [awardEvents, profileBadges, createdBadges] = await Promise.all([
+  const [awardEvents, profileBadgesDetailed, createdBadges] = await Promise.all([
     relayQueryMany(profileReadRelays, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
-    relayQueryMany(profileReadRelays, [
+    relayQueryManyDetailed(profileReadRelays, [
       {
         kinds: [PROFILE_BADGES],
         authors: [pubkey],
@@ -166,7 +167,28 @@ async function loadBadgeState(pubkey) {
     ]),
     relayQueryMany(profileReadRelays, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
   ]);
-  const profileEvent = newestFirst(profileBadges)[0] || null;
+  const anyProfileBadgesOk = profileBadgesDetailed.relays.some(
+    (relay) => relay.status === "ok"
+  );
+  const newestProfileEvent = newestFirst(profileBadgesDetailed.events)[0] || null;
+  let profileBadgesStatus;
+  let profileEvent;
+  if (!anyProfileBadgesOk) {
+    profileBadgesStatus = "unknown";
+    profileEvent = null;
+  } else if (!newestProfileEvent) {
+    profileBadgesStatus = "empty";
+    profileEvent = {
+      kind: PROFILE_BADGES,
+      pubkey,
+      tags: [["d", PROFILE_BADGES_D]],
+      content: "",
+      created_at: 0,
+    };
+  } else {
+    profileBadgesStatus = "loaded";
+    profileEvent = newestProfileEvent;
+  }
   const coordinates = new Set(awardEvents.map((award) => findTag(award.tags, "a")).filter(Boolean));
   const acceptedCoordinates = profileEvent?.tags
     ?.filter((tag) => tag[0] === "a")
@@ -197,6 +219,7 @@ async function loadBadgeState(pubkey) {
   return {
     pubkey,
     profileEvent,
+    profileBadgesStatus,
     awarded: buildAwardedBadgeRecords(awardEvents, badgeDefinitions),
     accepted: buildAcceptedBadgeRecords(profileEvent, awardEvents, badgeDefinitions),
     created: newestFirst(createdBadges),
@@ -391,6 +414,14 @@ function mountTabInteractions(pubkey, state, canEdit) {
 
     panel.querySelectorAll("button[data-action]").forEach((button) => {
       button.onclick = async () => {
+        if (state.profileBadgesStatus === "unknown") {
+          showStatus(
+            getView(),
+            "err",
+            "Your profile_badges list could not be loaded from any relay. Check relay settings at /relays and try again."
+          );
+          return;
+        }
         button.disabled = true;
         try {
           const createdAt = Math.floor(Date.now() / 1000);

@@ -83,6 +83,52 @@ test("buildAcceptProfileBadgesEvent appends a new pair", () => {
   ]);
 });
 
+test("buildAcceptProfileBadgesEvent rejects null profileEvent", () => {
+  assert.throws(
+    () => buildAcceptProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: null,
+      badgeCoordinate: "30009:a:b",
+      awardId: "x",
+      relayUrl: "wss://r",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+  assert.throws(
+    () => buildAcceptProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: undefined,
+      badgeCoordinate: "30009:a:b",
+      awardId: "x",
+      relayUrl: "wss://r",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+});
+
+test("buildHideProfileBadgesEvent rejects null profileEvent", () => {
+  assert.throws(
+    () => buildHideProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: null,
+      awardId: "x",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+  assert.throws(
+    () => buildHideProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: undefined,
+      awardId: "x",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+});
+
 test("buildHideProfileBadgesEvent removes only the targeted award pair", () => {
   const profileEvent = {
     tags: [

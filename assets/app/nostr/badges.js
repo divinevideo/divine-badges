@@ -125,6 +125,11 @@ export function buildAcceptProfileBadgesEvent({
   relayUrl,
   createdAt,
 }) {
+  if (profileEvent === null || profileEvent === undefined) {
+    throw new Error(
+      "profileEvent is required to preserve existing profile_badges; fetch the latest kind:30008 first"
+    );
+  }
   const pairs = extractProfileBadgePairs(profileEvent);
   pairs.push({
     a: badgeCoordinate,
@@ -147,6 +152,11 @@ export function buildHideProfileBadgesEvent({
   awardId,
   createdAt,
 }) {
+  if (profileEvent === null || profileEvent === undefined) {
+    throw new Error(
+      "profileEvent is required to preserve existing profile_badges; fetch the latest kind:30008 first"
+    );
+  }
   const filteredPairs = extractProfileBadgePairs(profileEvent).filter(
     (pair) => pair.e !== awardId
   );

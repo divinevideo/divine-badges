@@ -130,17 +130,6 @@ function latestProfileBadgesEvent(events) {
   }, null);
 }
 
-async function fetchViewerProfileEvent(viewerReadRelays, viewerPubkey) {
-  const events = await relayQueryMany(viewerReadRelays, [
-    {
-      kinds: [PROFILE_BADGES],
-      authors: [viewerPubkey],
-      "#d": [PROFILE_BADGES_D],
-    },
-  ]);
-  return latestProfileBadgesEvent(events);
-}
-
 async function loadBadgePageState() {
   const coordinate = parseBadgeCoordinate(routeCoordinate());
   const coordinateValue = `${coordinate.kind}:${coordinate.pubkey}:${coordinate.identifier}`;
@@ -179,6 +168,7 @@ async function loadBadgePageState() {
   );
 
   let viewerProfileEvent = null;
+  let viewerProfileBadgesStatus = "unknown";
   let viewerCollectionState = { status: "logged-out" };
   let viewerReadRelays = null;
   const awardeePubkeys = extractAwardeePubkeys(awards);
@@ -190,8 +180,8 @@ async function loadBadgePageState() {
       pubkeys: [signerPubkey],
       seedRelays: [DIVINE_RELAY],
     });
-    const [viewerProfileEvents, viewerAwards] = await Promise.all([
-      relayQueryMany(viewerReadRelays, [
+    const [viewerProfileDetailed, viewerAwards] = await Promise.all([
+      relayQueryManyDetailed(viewerReadRelays, [
         {
           kinds: [PROFILE_BADGES],
           authors: [signerPubkey],
@@ -206,7 +196,28 @@ async function loadBadgePageState() {
         },
       ]),
     ]);
-    viewerProfileEvent = latestProfileBadgesEvent(viewerProfileEvents);
+    const anyViewerProfileOk = viewerProfileDetailed.relays.some(
+      (relay) => relay.status === "ok"
+    );
+    const newestViewerProfile = latestProfileBadgesEvent(
+      viewerProfileDetailed.events
+    );
+    if (!anyViewerProfileOk) {
+      viewerProfileBadgesStatus = "unknown";
+      viewerProfileEvent = null;
+    } else if (!newestViewerProfile) {
+      viewerProfileBadgesStatus = "empty";
+      viewerProfileEvent = {
+        kind: PROFILE_BADGES,
+        pubkey: signerPubkey,
+        tags: [["d", PROFILE_BADGES_D]],
+        content: "",
+        created_at: 0,
+      };
+    } else {
+      viewerProfileBadgesStatus = "loaded";
+      viewerProfileEvent = newestViewerProfile;
+    }
     viewerCollectionState = buildBadgeViewerCollectionState({
       signerPubkey,
       badgeCoordinate: coordinateValue,
@@ -251,6 +262,7 @@ async function loadBadgePageState() {
     awardees,
     issuer,
     viewerProfileEvent,
+    viewerProfileBadgesStatus,
     viewerCollectionState,
     viewerReadRelays,
     contactListEvent,
@@ -662,6 +674,15 @@ async function handleCollectionAction(state, action, rerender) {
   const awardId = current.award?.id;
   if (!awardId) return;
 
+  if (state.viewerProfileBadgesStatus === "unknown") {
+    showStatus(
+      getView(),
+      "err",
+      "Your profile_badges list could not be loaded from any relay. Check relay settings at /relays and try again."
+    );
+    return;
+  }
+
   const accept = action === "accept";
   const button = document.getElementById(
     accept ? "collection-accept" : "collection-hide"
@@ -714,10 +735,33 @@ async function handleCollectionAction(state, action, rerender) {
         seedRelays: [DIVINE_RELAY],
       }));
     state.viewerReadRelays = viewerReadRelays;
-    state.viewerProfileEvent = await fetchViewerProfileEvent(
-      viewerReadRelays,
-      signerPubkey
+    const refreshedDetailed = await relayQueryManyDetailed(viewerReadRelays, [
+      {
+        kinds: [PROFILE_BADGES],
+        authors: [signerPubkey],
+        "#d": [PROFILE_BADGES_D],
+      },
+    ]);
+    const refreshedAnyOk = refreshedDetailed.relays.some(
+      (relay) => relay.status === "ok"
     );
+    const refreshedNewest = latestProfileBadgesEvent(refreshedDetailed.events);
+    if (!refreshedAnyOk) {
+      state.viewerProfileBadgesStatus = "unknown";
+      state.viewerProfileEvent = null;
+    } else if (!refreshedNewest) {
+      state.viewerProfileBadgesStatus = "empty";
+      state.viewerProfileEvent = {
+        kind: PROFILE_BADGES,
+        pubkey: signerPubkey,
+        tags: [["d", PROFILE_BADGES_D]],
+        content: "",
+        created_at: 0,
+      };
+    } else {
+      state.viewerProfileBadgesStatus = "loaded";
+      state.viewerProfileEvent = refreshedNewest;
+    }
     const viewerAwards = await relayQueryMany(viewerReadRelays, [
       {
         kinds: [BADGE_AWARD],

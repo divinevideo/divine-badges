@@ -38,6 +38,7 @@ let state = {
   discovered: [],
   localRelays: [],
   publishedEvent: null,
+  publishedListStatus: "unknown",
   checkResults: null,
 };
 
@@ -124,21 +125,28 @@ export function parseRelayListIntoPrefs(event) {
 }
 
 async function discoverPublishedRelayList() {
-  if (!signerPubkey) return null;
+  if (!signerPubkey) return { status: "unknown", event: null };
   const readRelays = await discoverReadRelays({
     pubkeys: [signerPubkey],
     seedRelays: [DIVINE_RELAY],
     relayListKind: RELAY_LIST_METADATA,
   });
-  const events = await relayQueryMany(readRelays, [
+  const detailed = await relayQueryManyDetailed(readRelays, [
     {
       kinds: [RELAY_LIST_METADATA],
       authors: [signerPubkey],
       limit: 1,
     },
   ]);
-  const newest = newestFirst(events)[0] || null;
-  return newest;
+  const anyOk = detailed.relays.some((relay) => relay.status === "ok");
+  if (!anyOk) {
+    return { status: "unknown", event: null };
+  }
+  const newest = newestFirst(detailed.events)[0] || null;
+  if (!newest) {
+    return { status: "empty", event: null };
+  }
+  return { status: "loaded", event: newest };
 }
 
 function renderPage() {
@@ -223,13 +231,24 @@ function renderPage() {
     </div>
   `;
 
+  const publishDisabled = state.publishedListStatus === "unknown";
+  const publishButtonMarkup = signer
+    ? `<button class="primary" id="publish-relay-list-btn"${
+        publishDisabled ? " disabled" : ""
+      }>Publish relay list (kind:10002)</button>${
+        publishDisabled
+          ? '<span class="markers">Your current published relay list could not be loaded from any relay, so publishing now could wipe it. Check your relays and reload.</span>'
+          : ""
+      }`
+    : '<span class="markers">Log in to publish a relay list.</span>';
+
   const actionsCard = `
     <div class="card section">
       <h2>Actions</h2>
       <p>Check whether the effective relay set is reachable, or publish your local preferences to Nostr.</p>
       <div class="row">
         <button class="secondary" id="check-relays-btn">Check relays</button>
-        ${signer ? '<button class="primary" id="publish-relay-list-btn">Publish relay list (kind:10002)</button>' : '<span class="markers">Log in to publish a relay list.</span>'}
+        ${publishButtonMarkup}
       </div>
       <div id="check-results"></div>
     </div>
@@ -383,6 +402,14 @@ async function handlePublishRelayList() {
     showStatus(getView(), "err", "Log in before publishing your relay list.");
     return;
   }
+  if (state.publishedListStatus === "unknown") {
+    showStatus(
+      getView(),
+      "err",
+      "Your current published relay list could not be loaded from any relay. Publishing now could wipe it. Check your relays and reload."
+    );
+    return;
+  }
   const btn = document.getElementById("publish-relay-list-btn");
   if (btn instanceof HTMLButtonElement) {
     btn.disabled = true;
@@ -405,6 +432,8 @@ async function handlePublishRelayList() {
       showStatus(getView(), "ok", summarizePublishResult(outcome));
       // Refresh the discovered list so the published card reflects what was sent.
       state.discovered = union.filter((pref) => pref.read || pref.write);
+      state.publishedListStatus = "loaded";
+      state.publishedEvent = outcome.signed || state.publishedEvent;
       renderPage();
     } else {
       showStatus(
@@ -449,10 +478,15 @@ export async function mountRelaysPage() {
   await restoreOptionalSession();
   state.localRelays = readLocalRelays();
   try {
-    const published = await discoverPublishedRelayList();
-    state.discovered = parseRelayListIntoPrefs(published);
+    const { status, event } = await discoverPublishedRelayList();
+    state.publishedListStatus = status;
+    state.publishedEvent = event;
+    state.discovered = parseRelayListIntoPrefs(event);
   } catch (error) {
-    // Non-fatal: render with whatever we have.
+    // Non-fatal: render with whatever we have. Treat as unknown so we don't
+    // allow publishing a list that could wipe an existing one.
+    state.publishedListStatus = "unknown";
+    state.publishedEvent = null;
     state.discovered = [];
     showStatus(
       root,
