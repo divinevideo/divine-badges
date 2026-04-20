@@ -71,6 +71,11 @@
     .detail-value{font-size:.95rem;color:var(--off);word-break:break-word}
     .detail-value code{font-family:'SFMono-Regular',ui-monospace,monospace;font-size:.82rem;color:var(--mint)}
     .owner-note{padding:14px 16px;border-radius:18px;background:rgba(208,251,203,.06);border:1px solid rgba(208,251,203,.15);color:rgba(208,251,203,.84);font-size:.95rem}
+    .collection-state{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 18px;border-radius:18px;font-size:.98rem}
+    .collection-state strong{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:700}
+    .collection-state.collected{background:rgba(39,197,139,.12);border:1px solid rgba(39,197,139,.38);color:var(--mint)}
+    .collection-state.awarded{background:rgba(255,241,64,.12);border:1px solid rgba(255,241,64,.36);color:var(--yellow)}
+    .collection-state.none{background:rgba(208,251,203,.06);border:1px solid rgba(208,251,203,.15);color:rgba(208,251,203,.78)}
     .award-panel{border-radius:22px;background:rgba(208,251,203,.05);border:1px solid rgba(208,251,203,.14);overflow:hidden}
     .award-panel summary{list-style:none;cursor:pointer;padding:16px 18px;font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:1.18rem;font-weight:800;letter-spacing:-.02em}
     .award-panel summary::-webkit-details-marker{display:none}
@@ -137,7 +142,7 @@
     </footer>
   </main>
   <script type="module">
-    import { mountBadgePage } from "/app/views/badge.js?v=2026-04-14-4";
+    import { mountBadgePage } from "/app/views/badge.js?v=2026-04-20-1";
 
     mountBadgePage();
   </script>

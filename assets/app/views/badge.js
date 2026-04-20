@@ -2,8 +2,10 @@ import {
   BADGE_AWARD,
   BADGE_DEFINITION,
   DIVINE_RELAY,
+  PROFILE_BADGES,
+  PROFILE_BADGES_D,
   RELAY_LIST_METADATA,
-} from "/app/nostr/constants.js?v=2026-04-14-3";
+} from "/app/nostr/constants.js?v=2026-04-20-1";
 import {
   discoverReadRelays,
   relayQueryMany,
@@ -15,13 +17,16 @@ import {
 } from "/app/auth/session.js?v=2026-04-14-3";
 import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
+  buildAcceptProfileBadgesEvent,
   buildBadgeAwardEvent,
+  buildBadgeViewerCollectionState,
+  buildHideProfileBadgesEvent,
   canAwardBadge,
   coordinateFromBadgeDefinition,
   findTag,
   parseRecipientInput,
   shouldOpenAwardPanel,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+} from "/app/nostr/badges.js?v=2026-04-20-1";
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
@@ -108,6 +113,25 @@ async function restoreOptionalSession() {
   }
 }
 
+function latestProfileBadgesEvent(events) {
+  if (!Array.isArray(events) || !events.length) return null;
+  return events.reduce((latest, candidate) => {
+    if (!latest) return candidate;
+    return candidate.created_at > latest.created_at ? candidate : latest;
+  }, null);
+}
+
+async function fetchViewerProfileEvent(viewerReadRelays, viewerPubkey) {
+  const events = await relayQueryMany(viewerReadRelays, [
+    {
+      kinds: [PROFILE_BADGES],
+      authors: [viewerPubkey],
+      "#d": [PROFILE_BADGES_D],
+    },
+  ]);
+  return latestProfileBadgesEvent(events);
+}
+
 async function loadBadgePageState() {
   const coordinate = parseBadgeCoordinate(routeCoordinate());
   const coordinateValue = `${coordinate.kind}:${coordinate.pubkey}:${coordinate.identifier}`;
@@ -144,6 +168,40 @@ async function loadBadgePageState() {
       profile: await loadDivineProfile(pubkey),
     }))
   );
+
+  let viewerProfileEvent = null;
+  let viewerCollectionState = { status: "logged-out" };
+  let viewerReadRelays = null;
+  if (signerPubkey) {
+    viewerReadRelays = await discoverReadRelays({
+      pubkeys: [signerPubkey],
+      seedRelays: [DIVINE_RELAY],
+    });
+    const [viewerProfileEvents, viewerAwards] = await Promise.all([
+      relayQueryMany(viewerReadRelays, [
+        {
+          kinds: [PROFILE_BADGES],
+          authors: [signerPubkey],
+          "#d": [PROFILE_BADGES_D],
+        },
+      ]),
+      relayQueryMany(viewerReadRelays, [
+        {
+          kinds: [BADGE_AWARD],
+          "#a": [coordinateValue],
+          "#p": [signerPubkey],
+        },
+      ]),
+    ]);
+    viewerProfileEvent = latestProfileBadgesEvent(viewerProfileEvents);
+    viewerCollectionState = buildBadgeViewerCollectionState({
+      signerPubkey,
+      badgeCoordinate: coordinateValue,
+      awards: viewerAwards.concat(awards),
+      profileEvent: viewerProfileEvent,
+    });
+  }
+
   return {
     coordinate,
     coordinateValue,
@@ -151,6 +209,9 @@ async function loadBadgePageState() {
     awards,
     awardees,
     issuer,
+    viewerProfileEvent,
+    viewerCollectionState,
+    viewerReadRelays,
   };
 }
 
@@ -265,6 +326,21 @@ function awardPanelMarkup(awardState) {
   `;
 }
 
+function collectionStateMarkup(state) {
+  const status = state.viewerCollectionState?.status;
+  switch (status) {
+    case "accepted":
+      return `<div class="collection-state collected"><strong>This badge is on your profile.</strong> <button data-action="hide" class="secondary" id="collection-hide" type="button">Hide from profile</button></div>`;
+    case "awarded":
+      return `<div class="collection-state awarded"><strong>You earned this badge.</strong> <button data-action="accept" class="primary" id="collection-accept" type="button">Accept</button></div>`;
+    case "not-awarded":
+      return `<div class="collection-state none">You have not been awarded this badge yet.</div>`;
+    case "logged-out":
+    default:
+      return `<div class="collection-state none">Log in to see if this badge is yours.</div>`;
+  }
+}
+
 function badgePageMarkup(state, canAward, awardState) {
   const badge = badgePresentation(state);
   const awardCount = state.awardees.length;
@@ -288,6 +364,8 @@ function badgePageMarkup(state, canAward, awardState) {
         </div>
         <div class="medal ${esc(badge.variant)}">${medal}</div>
       </section>
+
+      ${collectionStateMarkup(state)}
 
       <div class="layout">
         <section class="section">
@@ -504,6 +582,114 @@ function bindAwardControls(state, awardState, rerender) {
   }
 }
 
+async function handleCollectionAction(state, action, rerender) {
+  if (!signerPubkey) return;
+  const current = state.viewerCollectionState;
+  if (!current || (current.status !== "accepted" && current.status !== "awarded")) {
+    return;
+  }
+  const awardId = current.award?.id;
+  if (!awardId) return;
+
+  const accept = action === "accept";
+  const button = document.getElementById(
+    accept ? "collection-accept" : "collection-hide"
+  );
+  if (button) {
+    button.disabled = true;
+    button.textContent = accept ? "Signing…" : "Updating…";
+  }
+  clearStatus();
+
+  try {
+    const createdAt = Math.floor(Date.now() / 1000);
+    const event = accept
+      ? buildAcceptProfileBadgesEvent({
+          pubkey: signerPubkey,
+          profileEvent: state.viewerProfileEvent,
+          badgeCoordinate: state.coordinateValue,
+          awardId,
+          relayUrl: DIVINE_RELAY,
+          createdAt,
+        })
+      : buildHideProfileBadgesEvent({
+          pubkey: signerPubkey,
+          profileEvent: state.viewerProfileEvent,
+          awardId,
+          createdAt,
+        });
+    const outcome = await publishSignedToWriteRelays({
+      pubkey: signerPubkey,
+      unsignedEvent: event,
+      signer,
+    });
+    if (!publishSucceeded(outcome)) {
+      showStatus(
+        getView(),
+        "err",
+        `Could not update badges: ${summarizePublishResult(outcome)}`
+      );
+      if (button) {
+        button.disabled = false;
+        button.textContent = accept ? "Accept" : "Hide from profile";
+      }
+      return;
+    }
+    const viewerReadRelays =
+      state.viewerReadRelays ||
+      (await discoverReadRelays({
+        pubkeys: [signerPubkey],
+        seedRelays: [DIVINE_RELAY],
+      }));
+    state.viewerReadRelays = viewerReadRelays;
+    state.viewerProfileEvent = await fetchViewerProfileEvent(
+      viewerReadRelays,
+      signerPubkey
+    );
+    const viewerAwards = await relayQueryMany(viewerReadRelays, [
+      {
+        kinds: [BADGE_AWARD],
+        "#a": [state.coordinateValue],
+        "#p": [signerPubkey],
+      },
+    ]);
+    state.viewerCollectionState = buildBadgeViewerCollectionState({
+      signerPubkey,
+      badgeCoordinate: state.coordinateValue,
+      awards: viewerAwards.concat(state.awards),
+      profileEvent: state.viewerProfileEvent,
+    });
+    if (outcome.result.failed.length > 0) {
+      showStatus(getView(), "info", summarizePublishResult(outcome));
+    }
+    rerender();
+  } catch (error) {
+    showStatus(
+      getView(),
+      "err",
+      `Could not update badges: ${error.message || error}`
+    );
+    if (button) {
+      button.disabled = false;
+      button.textContent = accept ? "Accept" : "Hide from profile";
+    }
+  }
+}
+
+function bindCollectionControls(state, rerender) {
+  if (!signerPubkey) return;
+  const status = state.viewerCollectionState?.status;
+  if (status !== "accepted" && status !== "awarded") return;
+  const acceptButton = document.getElementById("collection-accept");
+  if (acceptButton) {
+    acceptButton.onclick = () => handleCollectionAction(state, "accept", rerender);
+  }
+  const hideButton = document.getElementById("collection-hide");
+  if (hideButton) {
+    hideButton.onclick = () => handleCollectionAction(state, "hide", rerender);
+  }
+}
+
 export async function mountBadgePage() {
   const root = getView();
   replaceView(root, '<p class="status info">Loading badge…</p>');
@@ -530,6 +716,7 @@ export async function mountBadgePage() {
       if (canAward) {
         bindAwardControls(state, awardState, rerender);
       }
+      bindCollectionControls(state, rerender);
     };
 
     rerender();
