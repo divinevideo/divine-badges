@@ -1,3 +1,5 @@
+import { loadNostrProfileMetadata } from "../nostr/profile_metadata.js";
+
 function shortenPubkey(pubkey) {
   return pubkey ? `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}` : "";
 }
@@ -70,6 +72,49 @@ export function buildNavProfile({ pubkey, payload }) {
     nip05,
     about: profile?.about?.trim() || null,
     pubkey,
+  };
+}
+
+async function fetchDivine(pubkey, apiBase) {
+  try {
+    const response = await fetch(`${apiBase}/api/users/${pubkey}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCreatorProfile(
+  pubkey,
+  {
+    relays = [],
+    apiBase = "https://api.divine.video",
+    fetchDivineFn = fetchDivine,
+    loadNostrFn = loadNostrProfileMetadata,
+  } = {}
+) {
+  const [divinePayload, nostr] = await Promise.all([
+    Promise.resolve().then(() => fetchDivineFn(pubkey, apiBase)).catch(() => null),
+    Promise.resolve().then(() => loadNostrFn(pubkey, relays)).catch(() => null),
+  ]);
+  const base = buildNavProfile({ pubkey, payload: divinePayload });
+  if (!nostr) return base;
+  const shortened = shortenPubkey(pubkey);
+  const displayName =
+    base.displayName && base.displayName !== shortened
+      ? base.displayName
+      : nostr.displayName || base.displayName;
+  const handle = base.handle || (nostr.handle ? `@${nostr.handle}` : null);
+  return {
+    ...base,
+    displayName,
+    avatarUrl: base.avatarUrl || nostr.avatarUrl,
+    nip05: base.nip05 || nostr.nip05,
+    handle,
+    username: base.username || nostr.handle,
+    about: base.about || nostr.about,
+    initials: (displayName || pubkey || "?").trim().charAt(0).toUpperCase() || "?",
   };
 }
 

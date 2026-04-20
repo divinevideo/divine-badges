@@ -7,6 +7,7 @@ pub enum PublicAppAsset {
     NostrBadgesJs,
     NostrConstantsJs,
     NostrIdentityJs,
+    NostrProfileMetadataJs,
     NostrPublishJs,
     NostrRelayJs,
     ViewsCommonJs,
@@ -61,6 +62,9 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/app/nostr/badges.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrBadgesJs),
         "/app/nostr/constants.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrConstantsJs),
         "/app/nostr/identity.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrIdentityJs),
+        "/app/nostr/profile_metadata.js" => {
+            PublicRouteMatch::AppAsset(PublicAppAsset::NostrProfileMetadataJs)
+        }
         "/app/nostr/publish.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrPublishJs),
         "/app/nostr/relay.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrRelayJs),
         "/app/views/badge.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsBadgeJs),

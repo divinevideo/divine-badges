@@ -15,7 +15,10 @@ import {
   bootstrapSession,
   clearStoredSession,
 } from "/app/auth/session.js?v=2026-04-14-3";
-import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
+import {
+  loadCreatorProfile,
+  loadDivineProfile,
+} from "/app/auth/profile.js?v=2026-04-20-1";
 import {
   buildAcceptProfileBadgesEvent,
   buildBadgeAwardEvent,
@@ -150,7 +153,7 @@ async function loadBadgePageState() {
       },
     ]),
     relayQueryMany(badgeReadRelays, [{ kinds: [BADGE_AWARD], "#a": [coordinateValue] }]),
-    loadDivineProfile(coordinate.pubkey),
+    loadCreatorProfile(coordinate.pubkey, { relays: badgeReadRelays }),
   ]);
   const badge = definitions[0];
   if (!badge) {
@@ -166,7 +169,7 @@ async function loadBadgePageState() {
   const awardees = await Promise.all(
     recipientPubkeys.map(async (pubkey) => ({
       pubkey,
-      profile: await loadDivineProfile(pubkey),
+      profile: await loadCreatorProfile(pubkey, { relays: badgeReadRelays }),
     }))
   );
 

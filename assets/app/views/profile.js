@@ -25,8 +25,9 @@ import {
 } from "/app/auth/session.js?v=2026-04-14-3";
 import {
   buildPublicCreatorSummary,
+  loadCreatorProfile,
   loadDivineProfile,
-} from "/app/auth/profile.js?v=2026-04-14-3";
+} from "/app/auth/profile.js?v=2026-04-20-1";
 import {
   buildAcceptedBadgeRecords,
   buildAcceptProfileBadgesEvent,
@@ -114,19 +115,35 @@ async function restoreOptionalSession() {
   }
 }
 
-async function loadPublicProfile(pubkey) {
+async function loadPublicProfile(pubkey, readRelays = []) {
+  let payload = null;
   try {
     const response = await fetch(`${DIVINE_API_BASE}/api/users/${pubkey}`);
-    if (!response.ok) {
-      throw new Error(`profile request failed with ${response.status}`);
+    if (response.ok) {
+      payload = await response.json();
     }
-    return await response.json();
   } catch {
-    return {
-      pubkey,
-      profile: null,
-    };
+    payload = null;
   }
+  const creator = await loadCreatorProfile(pubkey, {
+    relays: readRelays,
+    apiBase: DIVINE_API_BASE,
+    fetchDivineFn: async () => payload,
+  });
+  const existingProfile = payload?.profile || {};
+  const mergedProfile = {
+    ...existingProfile,
+    display_name: existingProfile.display_name || creator.displayName || null,
+    name: existingProfile.name || creator.displayName || null,
+    picture: existingProfile.picture || creator.avatarUrl || null,
+    nip05: existingProfile.nip05 || creator.nip05 || null,
+    about: existingProfile.about || creator.about || null,
+  };
+  return {
+    ...(payload || {}),
+    pubkey,
+    profile: mergedProfile,
+  };
 }
 
 async function loadBadgeState(pubkey) {
@@ -381,8 +398,13 @@ export async function mountProfilePage() {
   try {
     const routeId = routeProfileId();
     const pubkey = await resolveProfileId(routeId);
+    const readRelays = await discoverReadRelays({
+      pubkeys: [pubkey],
+      seedRelays: [DIVINE_RELAY],
+      relayListKind: RELAY_LIST_METADATA,
+    });
     const [profilePayload, badgeState] = await Promise.all([
-      loadPublicProfile(pubkey),
+      loadPublicProfile(pubkey, readRelays),
       loadBadgeState(pubkey),
     ]);
     const isOwner = signerPubkey === pubkey;
