@@ -48,7 +48,7 @@ jobs:
         run: npm run check:wasm
 
       - name: Install worker-build
-        run: cargo install worker-build --version 0.6.6 --locked
+        run: cargo install worker-build --version 0.8.1 --locked
 
       - name: Check Cloudflare deployment secrets
         id: secrets

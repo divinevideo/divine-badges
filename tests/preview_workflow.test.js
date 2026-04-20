@@ -19,6 +19,8 @@ test("PR preview workflow uploads aliased Worker versions without production dep
   assert.match(workflow, /pull-requests:\s+write/);
   assert.match(workflow, /npm run check/);
   assert.match(workflow, /npm run check:wasm/);
+  assert.match(workflow, /cargo install worker-build --version 0\.8\.1 --locked/);
+  assert.doesNotMatch(workflow, /worker-build --version 0\.6\.6/);
   assert.match(workflow, /Check Cloudflare deployment secrets/);
   assert.match(workflow, /Comment missing preview configuration/);
   assert.match(workflow, /CLOUDFLARE_WORKERS_SUBDOMAIN/);
