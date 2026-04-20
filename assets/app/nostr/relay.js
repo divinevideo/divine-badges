@@ -63,7 +63,7 @@ export function relayQuery(relayUrl, filters, timeoutMs = 6000) {
   });
 }
 
-export async function relayQueryMany(
+export async function relayQueryManyDetailed(
   relayUrls,
   filters,
   timeoutMs = 6000,
@@ -71,16 +71,52 @@ export async function relayQueryMany(
 ) {
   const uniqueRelayUrls = [...new Set((relayUrls || []).filter(Boolean))];
   if (!uniqueRelayUrls.length) {
-    return [];
+    return { events: [], relays: [] };
   }
   const settled = await Promise.allSettled(
     uniqueRelayUrls.map((relayUrl) => queryFn(relayUrl, filters, timeoutMs))
   );
-  return mergeRelayEvents(
-    settled
-      .filter((result) => result.status === "fulfilled")
-      .map((result) => result.value)
+  const relays = [];
+  const successful = [];
+  settled.forEach((result, index) => {
+    const relayUrl = uniqueRelayUrls[index];
+    if (result.status === "fulfilled") {
+      const value = Array.isArray(result.value) ? result.value : [];
+      successful.push(value);
+      relays.push({
+        relayUrl,
+        status: "ok",
+        eventCount: value.length,
+      });
+    } else {
+      const err = result.reason;
+      relays.push({
+        relayUrl,
+        status: "error",
+        eventCount: 0,
+        error: err?.message || String(err),
+      });
+    }
+  });
+  return {
+    events: mergeRelayEvents(successful),
+    relays,
+  };
+}
+
+export async function relayQueryMany(
+  relayUrls,
+  filters,
+  timeoutMs = 6000,
+  queryFn = relayQuery
+) {
+  const { events } = await relayQueryManyDetailed(
+    relayUrls,
+    filters,
+    timeoutMs,
+    queryFn
   );
+  return events;
 }
 
 export async function discoverReadRelays(

@@ -9,6 +9,7 @@ import {
   relayPublishMany,
   relayUrlsFromRelayListEvent,
   relayQueryMany,
+  relayQueryManyDetailed,
 } from "./relay.js";
 
 test("relayUrlsFromRelayListEvent keeps read and neutral relays", () => {
@@ -192,6 +193,49 @@ test("relayPublishMany returns empty ok when all relays fail", async () => {
     { relayUrl: "wss://relay.one", error: "no wss://relay.one" },
     { relayUrl: "wss://relay.two", error: "no wss://relay.two" },
   ]);
+});
+
+test("relayQueryManyDetailed returns per-relay diagnostics and merged events", async () => {
+  const result = await relayQueryManyDetailed(
+    ["wss://one", "wss://two"],
+    [{ kinds: [1] }],
+    500,
+    async (relayUrl) => {
+      if (relayUrl === "wss://one") return [{ id: "event-1", created_at: 1 }];
+      throw new Error("relay exploded");
+    }
+  );
+
+  assert.deepEqual(result.events.map((e) => e.id), ["event-1"]);
+  assert.equal(result.relays.length, 2);
+  const one = result.relays.find((entry) => entry.relayUrl === "wss://one");
+  const two = result.relays.find((entry) => entry.relayUrl === "wss://two");
+  assert.equal(one.status, "ok");
+  assert.equal(one.eventCount, 1);
+  assert.equal(two.status, "error");
+  assert.equal(two.error, "relay exploded");
+});
+
+test("relayQueryManyDetailed returns empty shape for empty input", async () => {
+  const result = await relayQueryManyDetailed([]);
+  assert.deepEqual(result, { events: [], relays: [] });
+});
+
+test("relayQueryMany still returns merged events array (backwards compatible)", async () => {
+  const events = await relayQueryMany(
+    ["wss://relay.one", "wss://relay.two"],
+    [{ kinds: [1] }],
+    500,
+    async (relayUrl) => {
+      if (relayUrl === "wss://relay.two") {
+        throw new Error("relay error");
+      }
+      return [{ id: "compat-event", created_at: 2 }];
+    }
+  );
+
+  assert.ok(Array.isArray(events));
+  assert.deepEqual(events, [{ id: "compat-event", created_at: 2 }]);
 });
 
 test("hasAnyRelayPublishSuccess reflects ok array length", () => {
