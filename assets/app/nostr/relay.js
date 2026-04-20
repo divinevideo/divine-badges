@@ -1,3 +1,56 @@
+export const RELAY_LIST_KIND = 10002;
+
+export function normalizeRelayUrl(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim().toLowerCase();
+  if (!/^wss?:\/\//.test(trimmed)) return null;
+  return trimmed;
+}
+
+export function buildEffectiveRelays({
+  divineRelays = [],
+  discoveredRelays = [],
+  localRelays = [],
+  mode = "read",
+} = {}) {
+  const out = [];
+  const seen = new Set();
+  const addUrl = (raw) => {
+    const normalized = normalizeRelayUrl(raw);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+  (divineRelays || []).forEach((url) => addUrl(url));
+  (discoveredRelays || []).forEach((url) => addUrl(url));
+  (localRelays || []).forEach((pref) => {
+    if (!pref?.url) return;
+    if (mode === "read" && pref.read) addUrl(pref.url);
+    if (mode === "write" && pref.write) addUrl(pref.url);
+  });
+  return out;
+}
+
+export function buildRelayListMetadataEvent({ pubkey, relays, createdAt } = {}) {
+  const tags = [];
+  for (const pref of relays || []) {
+    const url = normalizeRelayUrl(pref?.url);
+    if (!url) continue;
+    const r = Boolean(pref.read);
+    const w = Boolean(pref.write);
+    if (r && w) tags.push(["r", url]);
+    else if (r) tags.push(["r", url, "read"]);
+    else if (w) tags.push(["r", url, "write"]);
+  }
+  return {
+    kind: RELAY_LIST_KIND,
+    pubkey,
+    content: "",
+    tags,
+    created_at: createdAt,
+  };
+}
+
 export function newestFirst(events) {
   return [...events].sort((left, right) => right.created_at - left.created_at);
 }

@@ -15,6 +15,7 @@ import {
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
+  readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
@@ -334,6 +335,7 @@ function mountTabInteractions(pubkey, state, canEdit) {
             pubkey,
             unsignedEvent: event,
             signer,
+            localRelays: readLocalRelays(),
           });
           if (publishSucceeded(outcome)) {
             if (outcome.result.failed.length > 0) {

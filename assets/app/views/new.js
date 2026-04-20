@@ -12,6 +12,7 @@ import {
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
+  readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
 import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
@@ -372,6 +373,7 @@ async function publishBadge() {
       pubkey: signerPubkey,
       unsignedEvent: event,
       signer,
+      localRelays: readLocalRelays(),
     });
     if (!publishSucceeded(outcome)) {
       state.publishing = false;

@@ -30,6 +30,7 @@ import {
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
+  readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
@@ -482,6 +483,7 @@ async function publishAward(state, awardState) {
     pubkey: signerPubkey,
     unsignedEvent: event,
     signer,
+    localRelays: readLocalRelays(),
   });
 }
 
@@ -627,6 +629,7 @@ async function handleCollectionAction(state, action, rerender) {
       pubkey: signerPubkey,
       unsignedEvent: event,
       signer,
+      localRelays: readLocalRelays(),
     });
     if (!publishSucceeded(outcome)) {
       showStatus(

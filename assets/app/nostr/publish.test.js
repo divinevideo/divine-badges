@@ -3,10 +3,29 @@ import assert from "node:assert/strict";
 
 import { DIVINE_RELAY } from "./constants.js";
 import {
+  LOCAL_RELAYS_STORAGE_KEY,
   publishSignedToWriteRelays,
   publishSucceeded,
+  readLocalRelays,
   summarizePublishResult,
+  writeLocalRelays,
 } from "./publish.js";
+
+function buildMockStorage(initial = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    setItem(key, value) {
+      store.set(key, String(value));
+    },
+    removeItem(key) {
+      store.delete(key);
+    },
+    _store: store,
+  };
+}
 
 function buildSignerStub(signed) {
   const calls = [];
@@ -61,8 +80,17 @@ test("publishSignedToWriteRelays discovers write relays using the signer pubkey"
   assert.equal(discoverCalls.length, 1);
   assert.deepEqual(discoverCalls[0].pubkeys, ["pk-42"]);
   assert.deepEqual(discoverCalls[0].seedRelays, ["wss://seed.one"]);
-  assert.deepEqual(outcome.relays, ["wss://discovered.one", "wss://discovered.two"]);
-  assert.deepEqual(publishCalls[0].relays, ["wss://discovered.one", "wss://discovered.two"]);
+  // Effective relay list = seed relays + discovered relays (deduped, normalized)
+  assert.deepEqual(outcome.relays, [
+    "wss://seed.one",
+    "wss://discovered.one",
+    "wss://discovered.two",
+  ]);
+  assert.deepEqual(publishCalls[0].relays, [
+    "wss://seed.one",
+    "wss://discovered.one",
+    "wss://discovered.two",
+  ]);
 });
 
 test("publishSignedToWriteRelays defaults seed relays to include DIVINE_RELAY", async () => {
@@ -172,6 +200,89 @@ test("publishSucceeded returns true iff result.ok has entries", () => {
   );
   assert.equal(publishSucceeded(undefined), false);
   assert.equal(publishSucceeded({ result: undefined }), false);
+});
+
+test("publishSignedToWriteRelays includes write-enabled local relays in the published relay list", async () => {
+  let passedRelays = null;
+  const signer = buildSignerStub({ id: "signed-local" });
+
+  await publishSignedToWriteRelays({
+    pubkey: "pk",
+    unsignedEvent: { kind: 1 },
+    signer,
+    seedRelays: ["wss://seed.one"],
+    localRelays: [
+      { url: "wss://local.write", read: false, write: true },
+      { url: "wss://local.read-only", read: true, write: false },
+    ],
+    discoverFn: async () => ["wss://discovered.one"],
+    publishManyFn: async (relays, event) => {
+      passedRelays = relays;
+      return { ok: relays, failed: [] };
+    },
+  });
+
+  assert.ok(Array.isArray(passedRelays));
+  assert.ok(passedRelays.includes("wss://seed.one"));
+  assert.ok(passedRelays.includes("wss://discovered.one"));
+  assert.ok(passedRelays.includes("wss://local.write"));
+  assert.ok(!passedRelays.includes("wss://local.read-only"));
+});
+
+test("readLocalRelays returns normalized entries from storage", () => {
+  const storage = buildMockStorage({
+    [LOCAL_RELAYS_STORAGE_KEY]: JSON.stringify([
+      { url: "WSS://Relay.One", read: true, write: false },
+      { url: "wss://relay.two", read: false, write: true },
+      { url: "not-a-url", read: true, write: true },
+    ]),
+  });
+
+  const relays = readLocalRelays(storage);
+  assert.deepEqual(relays, [
+    { url: "wss://relay.one", read: true, write: false },
+    { url: "wss://relay.two", read: false, write: true },
+  ]);
+});
+
+test("readLocalRelays returns [] when storage value is invalid JSON", () => {
+  const storage = buildMockStorage({
+    [LOCAL_RELAYS_STORAGE_KEY]: "not json",
+  });
+  assert.deepEqual(readLocalRelays(storage), []);
+});
+
+test("readLocalRelays returns [] when storage value is not an array", () => {
+  const storage = buildMockStorage({
+    [LOCAL_RELAYS_STORAGE_KEY]: JSON.stringify({ nope: true }),
+  });
+  assert.deepEqual(readLocalRelays(storage), []);
+});
+
+test("readLocalRelays returns [] when key is absent", () => {
+  const storage = buildMockStorage({});
+  assert.deepEqual(readLocalRelays(storage), []);
+});
+
+test("readLocalRelays returns [] when storage is undefined/null", () => {
+  assert.deepEqual(readLocalRelays(undefined), []);
+  assert.deepEqual(readLocalRelays(null), []);
+});
+
+test("writeLocalRelays round-trips normalized entries through readLocalRelays", () => {
+  const storage = buildMockStorage();
+  writeLocalRelays(
+    [
+      { url: "WSS://Relay.One", read: true, write: false },
+      { url: "   wss://Relay.Two   ", read: true, write: true },
+      { url: "bogus", read: true, write: true },
+    ],
+    storage
+  );
+  assert.deepEqual(readLocalRelays(storage), [
+    { url: "wss://relay.one", read: true, write: false },
+    { url: "wss://relay.two", read: true, write: true },
+  ]);
 });
 
 test("summarizePublishResult formats ok-only, failed-only, mixed, and empty cases", () => {

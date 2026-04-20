@@ -16,6 +16,7 @@ import {
 import {
   publishSignedToWriteRelays,
   publishSucceeded,
+  readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
@@ -432,6 +433,7 @@ async function handleAwardAction(pubkey, state, action, button) {
       pubkey,
       unsignedEvent: event,
       signer,
+      localRelays: readLocalRelays(),
     });
     if (publishSucceeded(outcome)) {
       await loadBadges(pubkey);

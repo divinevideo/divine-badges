@@ -27,6 +27,7 @@ mod wasm_entry {
             (Method::Get, PublicRouteMatch::ProfilePage) => serve_html_page(PROFILE_PAGE),
             (Method::Get, PublicRouteMatch::BadgePage) => serve_html_page(BADGE_PAGE),
             (Method::Get, PublicRouteMatch::BadgeEditPage) => serve_html_page(EDIT_BADGE_PAGE),
+            (Method::Get, PublicRouteMatch::RelaysPage) => serve_html_page(RELAYS_PAGE),
             (Method::Get, PublicRouteMatch::IssuerPubkey) => serve_pubkey(env).await,
             (Method::Get, PublicRouteMatch::AppAsset(asset)) => serve_app_asset(asset),
             (Method::Post, _) if path == "/admin/publish-profile" => {
@@ -87,6 +88,7 @@ mod wasm_entry {
     const BADGE_PAGE: &str = include_str!("../assets/badge.html");
     const EDIT_BADGE_PAGE: &str = include_str!("../assets/edit_badge.html");
     const NEW_PAGE: &str = include_str!("../assets/new.html");
+    const RELAYS_PAGE: &str = include_str!("../assets/relays.html");
     const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
     const APP_AUTH_PROFILE_JS: &str = include_str!("../assets/app/auth/profile.js");
     const APP_AUTH_SESSION_JS: &str = include_str!("../assets/app/auth/session.js");
@@ -105,6 +107,7 @@ mod wasm_entry {
     const APP_VIEWS_NEW_TEXT_FIELDS_JS: &str =
         include_str!("../assets/app/views/new_text_fields.js");
     const APP_VIEWS_PROFILE_JS: &str = include_str!("../assets/app/views/profile.js");
+    const APP_VIEWS_RELAYS_JS: &str = include_str!("../assets/app/views/relays.js");
 
     fn serve_avatar() -> worker::Result<Response> {
         let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
@@ -146,6 +149,7 @@ mod wasm_entry {
             PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,
             PublicAppAsset::ViewsNewTextFieldsJs => APP_VIEWS_NEW_TEXT_FIELDS_JS,
             PublicAppAsset::ViewsProfileJs => APP_VIEWS_PROFILE_JS,
+            PublicAppAsset::ViewsRelaysJs => APP_VIEWS_RELAYS_JS,
         };
         let mut response = Response::ok(source)?;
         response

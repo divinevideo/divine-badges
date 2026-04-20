@@ -17,6 +17,7 @@ pub enum PublicAppAsset {
     ViewsNewJs,
     ViewsNewTextFieldsJs,
     ViewsProfileJs,
+    ViewsRelaysJs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,7 @@ pub enum PublicRouteMatch {
     ProfilePage,
     BadgePage,
     BadgeEditPage,
+    RelaysPage,
     IssuerPubkey,
     AppAsset(PublicAppAsset),
     NotFound,
@@ -50,6 +52,7 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/avatar.png" => PublicRouteMatch::Avatar,
         "/me" => PublicRouteMatch::MePage,
         "/new" => PublicRouteMatch::NewPage,
+        "/relays" => PublicRouteMatch::RelaysPage,
         "/pubkey" => PublicRouteMatch::IssuerPubkey,
         "/app/boot.js" => PublicRouteMatch::AppAsset(PublicAppAsset::BootJs),
         "/app/auth/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs),
@@ -72,6 +75,7 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
             PublicRouteMatch::AppAsset(PublicAppAsset::ViewsNewTextFieldsJs)
         }
         "/app/views/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsProfileJs),
+        "/app/views/relays.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsRelaysJs),
         _ => PublicRouteMatch::NotFound,
     }
 }
