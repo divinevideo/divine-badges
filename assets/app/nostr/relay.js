@@ -15,7 +15,8 @@ export function mergeRelayEvents(resultSets) {
   return [...eventsById.values()];
 }
 
-export function relayUrlsFromRelayListEvent(relayListEvent) {
+export function relayUrlsFromRelayListEvent(relayListEvent, mode = "read") {
+  const opposite = mode === "write" ? "read" : "write";
   const urls = [];
   for (const tag of relayListEvent?.tags || []) {
     if (tag[0] !== "r") {
@@ -23,7 +24,7 @@ export function relayUrlsFromRelayListEvent(relayListEvent) {
     }
     const url = tag[1]?.trim();
     const marker = tag[2]?.trim().toLowerCase();
-    if (!url || !/^wss?:\/\//i.test(url) || marker === "write") {
+    if (!url || !/^wss?:\/\//i.test(url) || marker === opposite) {
       continue;
     }
     urls.push(url);

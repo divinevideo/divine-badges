@@ -22,6 +22,27 @@ test("relayUrlsFromRelayListEvent keeps read and neutral relays", () => {
   assert.deepEqual(urls, ["wss://relay.one", "wss://relay.two"]);
 });
 
+test("relayUrlsFromRelayListEvent returns marker-aware read and write relays", () => {
+  const relayList = {
+    tags: [
+      ["r", "wss://neutral.example"],
+      ["r", "wss://read.example", "read"],
+      ["r", "wss://write.example", "write"],
+      ["r", "https://not-a-websocket.example"],
+      ["p", "ignored"],
+    ],
+  };
+
+  assert.deepEqual(
+    relayUrlsFromRelayListEvent(relayList, "read"),
+    ["wss://neutral.example", "wss://read.example"]
+  );
+  assert.deepEqual(
+    relayUrlsFromRelayListEvent(relayList, "write"),
+    ["wss://neutral.example", "wss://write.example"]
+  );
+});
+
 test("mergeRelayEvents deduplicates by event id", () => {
   const merged = mergeRelayEvents([
     [{ id: "one", created_at: 1 }, { id: "two", created_at: 2 }],
