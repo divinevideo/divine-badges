@@ -205,6 +205,31 @@ export function buildAwardedBadgeRecords(awards, badgeDefinitions) {
     .sort((left, right) => right.award.created_at - left.award.created_at);
 }
 
+export function awardIncludesRecipient(award, pubkey) {
+  if (!award?.tags || !pubkey) return false;
+  return award.tags.some((tag) => tag[0] === "p" && tag[1] === pubkey);
+}
+
+export function buildBadgeViewerCollectionState({
+  signerPubkey,
+  badgeCoordinate,
+  awards,
+  profileEvent,
+}) {
+  if (!signerPubkey) return { status: "logged-out" };
+  const award = (awards || []).find(
+    (candidate) =>
+      findTag(candidate.tags || [], "a") === badgeCoordinate &&
+      awardIncludesRecipient(candidate, signerPubkey)
+  );
+  if (!award) return { status: "not-awarded" };
+  const pair = extractProfileBadgePairs(profileEvent).find(
+    (candidate) => candidate.a === badgeCoordinate && candidate.e === award.id
+  );
+  if (pair) return { status: "accepted", award, pair };
+  return { status: "awarded", award };
+}
+
 export function buildAcceptedBadgeRecords(profileEvent, awards, badgeDefinitions) {
   const awardsById = new Map(awards.map((award) => [award.id, award]));
   const definitionsByCoordinate = new Map(

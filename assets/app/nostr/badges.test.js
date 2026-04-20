@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  awardIncludesRecipient,
   buildAcceptedBadgeRecords,
   buildAcceptProfileBadgesEvent,
   buildAwardedBadgeRecords,
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
+  buildBadgeViewerCollectionState,
   buildNewBadgePreviewModel,
   canAwardBadge,
   coordinatePathFromBadge,
@@ -321,4 +323,169 @@ test("shouldOpenAwardPanel reads the route query flag", () => {
   assert.equal(shouldOpenAwardPanel("?award=1"), true);
   assert.equal(shouldOpenAwardPanel("?award=0"), false);
   assert.equal(shouldOpenAwardPanel(""), false);
+});
+
+test("awardIncludesRecipient matches a p-tag for the given pubkey", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "alice"],
+      ["p", "bob"],
+    ],
+  };
+  assert.equal(awardIncludesRecipient(award, "alice"), true);
+  assert.equal(awardIncludesRecipient(award, "bob"), true);
+});
+
+test("awardIncludesRecipient returns false when the pubkey is absent", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "alice"],
+    ],
+  };
+  assert.equal(awardIncludesRecipient(award, "carol"), false);
+});
+
+test("awardIncludesRecipient handles missing tags and pubkey inputs", () => {
+  assert.equal(awardIncludesRecipient(null, "alice"), false);
+  assert.equal(awardIncludesRecipient({}, "alice"), false);
+  assert.equal(awardIncludesRecipient({ tags: [["p", "alice"]] }, ""), false);
+  assert.equal(
+    awardIncludesRecipient({ tags: [["p", "alice"]] }, undefined),
+    false
+  );
+});
+
+test("buildBadgeViewerCollectionState returns logged-out without a signer", () => {
+  assert.deepEqual(
+    buildBadgeViewerCollectionState({
+      signerPubkey: null,
+      badgeCoordinate: "30009:issuer:day",
+      awards: [],
+      profileEvent: null,
+    }),
+    { status: "logged-out" }
+  );
+});
+
+test("buildBadgeViewerCollectionState returns not-awarded when signer has no matching award", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "someone-else"],
+      ],
+    },
+  ];
+  assert.deepEqual(
+    buildBadgeViewerCollectionState({
+      signerPubkey: "viewer",
+      badgeCoordinate: "30009:issuer:day",
+      awards,
+      profileEvent: null,
+    }),
+    { status: "not-awarded" }
+  );
+});
+
+test("buildBadgeViewerCollectionState returns awarded when viewer has award but profile lacks pair", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent: { tags: [["d", "profile_badges"]] },
+  });
+  assert.deepEqual(result, { status: "awarded", award });
+});
+
+test("buildBadgeViewerCollectionState returns accepted when profile pair matches coordinate and award", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const profileEvent = {
+    tags: [
+      ["d", "profile_badges"],
+      ["a", "30009:issuer:day"],
+      ["e", "award-1"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent,
+  });
+  assert.deepEqual(result, {
+    status: "accepted",
+    award,
+    pair: {
+      a: "30009:issuer:day",
+      aRelay: undefined,
+      e: "award-1",
+      eRelay: undefined,
+    },
+  });
+});
+
+test("buildBadgeViewerCollectionState picks the award that includes the viewer", () => {
+  const otherAward = {
+    id: "award-other",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "someone-else"],
+    ],
+  };
+  const viewerAward = {
+    id: "award-viewer",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [otherAward, viewerAward],
+    profileEvent: null,
+  });
+  assert.deepEqual(result, { status: "awarded", award: viewerAward });
+});
+
+test("buildBadgeViewerCollectionState ignores profile pair when award id does not match", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const profileEvent = {
+    tags: [
+      ["d", "profile_badges"],
+      ["a", "30009:issuer:day"],
+      ["e", "different-award-id"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent,
+  });
+  assert.deepEqual(result, { status: "awarded", award });
 });
