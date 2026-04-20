@@ -1,6 +1,7 @@
 import {
   BADGE_AWARD,
   BADGE_DEFINITION,
+  CONTACT_LIST,
   DIVINE_RELAY,
   PROFILE_BADGES,
   PROFILE_BADGES_D,
@@ -9,7 +10,8 @@ import {
 import {
   discoverReadRelays,
   relayQueryMany,
-} from "/app/nostr/relay.js?v=2026-04-14-3";
+  relayQueryManyDetailed,
+} from "/app/nostr/relay.js?v=2026-04-20-1";
 import {
   beginDivineOAuth,
   bootstrapSession,
@@ -23,9 +25,11 @@ import {
   buildAcceptProfileBadgesEvent,
   buildBadgeAwardEvent,
   buildBadgeViewerCollectionState,
+  buildFollowAwardeesEvent,
   buildHideProfileBadgesEvent,
   canAwardBadge,
   coordinateFromBadgeDefinition,
+  extractAwardeePubkeys,
   findTag,
   parseRecipientInput,
   shouldOpenAwardPanel,
@@ -177,6 +181,10 @@ async function loadBadgePageState() {
   let viewerProfileEvent = null;
   let viewerCollectionState = { status: "logged-out" };
   let viewerReadRelays = null;
+  const awardeePubkeys = extractAwardeePubkeys(awards);
+  let contactListEvent = null;
+  let contactListStatus = "unknown";
+  let missingFollows = [];
   if (signerPubkey) {
     viewerReadRelays = await discoverReadRelays({
       pubkeys: [signerPubkey],
@@ -205,6 +213,34 @@ async function loadBadgePageState() {
       awards: viewerAwards.concat(awards),
       profileEvent: viewerProfileEvent,
     });
+
+    if (awardeePubkeys.length > 0) {
+      const contactResult = await relayQueryManyDetailed(viewerReadRelays, [
+        { kinds: [CONTACT_LIST], authors: [signerPubkey], limit: 1 },
+      ]);
+      const anyOk = contactResult.relays.some((r) => r.status === "ok");
+      if (!anyOk) {
+        contactListStatus = "unknown";
+        contactListEvent = null;
+        missingFollows = awardeePubkeys.slice();
+      } else if (contactResult.events.length === 0) {
+        contactListStatus = "empty";
+        contactListEvent = null;
+        missingFollows = awardeePubkeys.slice();
+      } else {
+        contactListStatus = "loaded";
+        contactListEvent = contactResult.events.reduce((latest, candidate) => {
+          if (!latest) return candidate;
+          return candidate.created_at > latest.created_at ? candidate : latest;
+        }, null);
+        const existing = new Set(
+          (contactListEvent?.tags || [])
+            .filter((tag) => tag[0] === "p" && typeof tag[1] === "string" && tag[1])
+            .map((tag) => tag[1])
+        );
+        missingFollows = awardeePubkeys.filter((pk) => !existing.has(pk));
+      }
+    }
   }
 
   return {
@@ -217,6 +253,10 @@ async function loadBadgePageState() {
     viewerProfileEvent,
     viewerCollectionState,
     viewerReadRelays,
+    contactListEvent,
+    contactListStatus,
+    awardeePubkeys,
+    missingFollows,
   };
 }
 
@@ -331,6 +371,24 @@ function awardPanelMarkup(awardState) {
   `;
 }
 
+function followAwardeesMarkup(state) {
+  if (!signerPubkey) return "";
+  const awardeePubkeys = state.awardeePubkeys || [];
+  if (!awardeePubkeys.length) return "";
+  const status = state.contactListStatus;
+  if (status === "unknown") {
+    return `<div class="follow-awardees-warning">Could not load your contact list. <a href="/relays">Check relay settings</a>.</div>`;
+  }
+  if (status === "loaded" || status === "empty") {
+    const missing = state.missingFollows || [];
+    if (missing.length > 0) {
+      return `<button id="follow-awardees" class="secondary" type="button">Follow awardees (${missing.length})</button>`;
+    }
+    return `<div class="follow-awardees-note">You already follow all awardees.</div>`;
+  }
+  return "";
+}
+
 function collectionStateMarkup(state) {
   const status = state.viewerCollectionState?.status;
   switch (status) {
@@ -376,6 +434,8 @@ function badgePageMarkup(state, canAward, awardState) {
       </section>
 
       ${collectionStateMarkup(state)}
+
+      ${followAwardeesMarkup(state)}
 
       <div class="layout">
         <section class="section">
@@ -702,6 +762,73 @@ function bindCollectionControls(state, rerender) {
   }
 }
 
+async function handleFollowAwardeesClick(state, rerender) {
+  const button = document.getElementById("follow-awardees");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "Publishing…";
+  clearStatus();
+  try {
+    const event = buildFollowAwardeesEvent({
+      pubkey: signerPubkey,
+      contactListEvent: state.contactListEvent || {
+        kind: CONTACT_LIST,
+        pubkey: signerPubkey,
+        tags: [],
+        content: "",
+        created_at: 0,
+      },
+      awardeePubkeys: state.missingFollows,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+    const outcome = await publishSignedToWriteRelays({
+      pubkey: signerPubkey,
+      unsignedEvent: event,
+      signer,
+      localRelays: readLocalRelays(),
+    });
+    if (!publishSucceeded(outcome)) {
+      showStatus(
+        getView(),
+        "err",
+        `Could not follow awardees: ${summarizePublishResult(outcome)}`
+      );
+      button.disabled = false;
+      button.textContent = `Follow awardees (${state.missingFollows.length})`;
+      return;
+    }
+    state.contactListEvent = outcome.signed;
+    state.missingFollows = [];
+    state.contactListStatus = "loaded";
+    if (outcome.result.failed.length > 0) {
+      showStatus(
+        getView(),
+        "info",
+        `Followed awardees. ${summarizePublishResult(outcome)}`
+      );
+    } else {
+      showStatus(getView(), "info", "Followed all awardees.");
+    }
+    rerender();
+  } catch (error) {
+    showStatus(
+      getView(),
+      "err",
+      `Could not follow awardees: ${error.message || error}`
+    );
+    button.disabled = false;
+    button.textContent = `Follow awardees (${state.missingFollows.length})`;
+  }
+}
+
+function bindFollowControls(state, rerender) {
+  if (!signerPubkey) return;
+  const button = document.getElementById("follow-awardees");
+  if (button) {
+    button.onclick = () => handleFollowAwardeesClick(state, rerender);
+  }
+}
+
 export async function mountBadgePage() {
   const root = getView();
   replaceView(root, '<p class="status info">Loading badge…</p>');
@@ -729,6 +856,7 @@ export async function mountBadgePage() {
         bindAwardControls(state, awardState, rerender);
       }
       bindCollectionControls(state, rerender);
+      bindFollowControls(state, rerender);
     };
 
     rerender();
