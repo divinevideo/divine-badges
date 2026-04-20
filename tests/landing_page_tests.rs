@@ -101,6 +101,10 @@ fn classify_public_route_matches_badge_edit_page() {
         classify_public_route("/app/views/edit_badge.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::ViewsEditBadgeJs)
     );
+    assert_eq!(
+        classify_public_route("/app/views/markdown.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMarkdownJs)
+    );
 }
 
 #[test]

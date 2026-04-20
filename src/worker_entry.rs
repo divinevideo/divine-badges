@@ -103,6 +103,7 @@ mod wasm_entry {
     const APP_VIEWS_BADGE_JS: &str = include_str!("../assets/app/views/badge.js");
     const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
     const APP_VIEWS_EDIT_BADGE_JS: &str = include_str!("../assets/app/views/edit_badge.js");
+    const APP_VIEWS_MARKDOWN_JS: &str = include_str!("../assets/app/views/markdown.js");
     const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
     const APP_VIEWS_ME_EMPTY_STATE_JS: &str = include_str!("../assets/app/views/me_empty_state.js");
     const APP_VIEWS_NEW_JS: &str = include_str!("../assets/app/views/new.js");
@@ -147,6 +148,7 @@ mod wasm_entry {
             PublicAppAsset::ViewsBadgeJs => APP_VIEWS_BADGE_JS,
             PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,
             PublicAppAsset::ViewsEditBadgeJs => APP_VIEWS_EDIT_BADGE_JS,
+            PublicAppAsset::ViewsMarkdownJs => APP_VIEWS_MARKDOWN_JS,
             PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
             PublicAppAsset::ViewsMeEmptyStateJs => APP_VIEWS_ME_EMPTY_STATE_JS,
             PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,

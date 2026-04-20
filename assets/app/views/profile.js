@@ -44,6 +44,7 @@ import {
   replaceView,
   showStatus,
 } from "/app/views/common.js?v=2026-04-14-3";
+import { renderSafeMarkdown } from "/app/views/markdown.js?v=2026-04-20-1";
 
 const DIVINE_API_BASE = "https://api.divine.video";
 const BADGE_META = {
@@ -219,7 +220,7 @@ function badgeCardMarkup(record, actions = "") {
         <a class="name" href="${esc(badgePath)}">${esc(meta.name)}</a>
         ${period ? `<div class="period">${esc(period)}</div>` : ""}
         <div class="issuer">${esc(issuer)}</div>
-        ${description ? `<div class="description">${esc(description)}</div>` : ""}
+        ${description ? `<div class="description">${renderSafeMarkdown(description)}</div>` : ""}
       </div>
       <div class="actions">${actions}</div>
     </li>

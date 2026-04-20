@@ -47,6 +47,7 @@ import {
   shorten,
   showStatus,
 } from "/app/views/common.js?v=2026-04-14-4";
+import { renderSafeMarkdown } from "/app/views/markdown.js?v=2026-04-20-1";
 
 const BADGE_META = {
   "diviner-of-the-day": { mark: "D", variant: "day", kind: "Daily badge" },
@@ -363,7 +364,7 @@ function badgePageMarkup(state, canAward, awardState) {
             <div class="eyebrow">${esc(badge.kind)}</div>
             <h2>${esc(badge.name)}</h2>
           </div>
-          <p>${esc(badge.description)}</p>
+          <div class="description">${renderSafeMarkdown(badge.description)}</div>
           <div class="meta-row">
             ${heroMetaPill("Issuer", state.issuer.displayName)}
             ${heroMetaPill("Awarded", `${awardCount} ${awardCount === 1 ? "time" : "times"}`)}
