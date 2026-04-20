@@ -14,6 +14,11 @@ import {
   relayQueryMany,
 } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
+  publishSignedToWriteRelays,
+  publishSucceeded,
+  summarizePublishResult,
+} from "/app/nostr/publish.js?v=2026-04-20-1";
+import {
   beginDivineOAuth,
   bootstrapSession,
   clearStoredSession,
@@ -423,9 +428,32 @@ async function handleAwardAction(pubkey, state, action, button) {
             awardId: button.dataset.awardId,
             createdAt,
           });
-    const signed = await signer.signEvent(event);
-    await relayPublish(DIVINE_RELAY, signed);
-    await loadBadges(pubkey);
+    const outcome = await publishSignedToWriteRelays({
+      pubkey,
+      unsignedEvent: event,
+      signer,
+    });
+    if (publishSucceeded(outcome)) {
+      await loadBadges(pubkey);
+      if (outcome.result.failed.length > 0) {
+        const failedUrls = outcome.result.failed
+          .map((entry) => entry.relayUrl)
+          .join(", ");
+        showStatus(
+          getView(),
+          "info",
+          `${summarizePublishResult(outcome)} (failed: ${failedUrls})`
+        );
+      }
+    } else {
+      showStatus(
+        getView(),
+        "err",
+        `Could not update badges: ${summarizePublishResult(outcome)}`
+      );
+      button.disabled = false;
+      button.textContent = action === "accept" ? "Accept" : "Hide";
+    }
   } catch (error) {
     showStatus(getView(), "err", `Could not update badges: ${error.message || error}`);
     button.disabled = false;
