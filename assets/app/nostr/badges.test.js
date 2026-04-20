@@ -10,11 +10,13 @@ import {
   buildBadgeDefinitionEvent,
   buildBadgeViewerCollectionState,
   buildEditedBadgeDefinitionEvent,
+  buildFollowAwardeesEvent,
   buildNewBadgePreviewModel,
   canAwardBadge,
   coordinatePathFromBadge,
   deriveBadgeSlug,
   buildHideProfileBadgesEvent,
+  extractAwardeePubkeys,
   parseRecipientInput,
   buildProfileBadgeTags,
   coordinateFromBadgeDefinition,
@@ -535,4 +537,187 @@ test("buildBadgeViewerCollectionState ignores profile pair when award id does no
     profileEvent,
   });
   assert.deepEqual(result, { status: "awarded", award });
+});
+
+test("extractAwardeePubkeys returns [] for empty or missing input", () => {
+  assert.deepEqual(extractAwardeePubkeys([]), []);
+  assert.deepEqual(extractAwardeePubkeys(undefined), []);
+  assert.deepEqual(extractAwardeePubkeys(null), []);
+});
+
+test("extractAwardeePubkeys deduplicates p-tag values across awards", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "alice"],
+        ["p", "bob"],
+      ],
+    },
+    {
+      id: "award-2",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "bob"],
+        ["p", "carol"],
+      ],
+    },
+  ];
+  assert.deepEqual(extractAwardeePubkeys(awards), ["alice", "bob", "carol"]);
+});
+
+test("extractAwardeePubkeys returns [] when no awards have p tags", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [["a", "30009:issuer:day"]],
+    },
+    {
+      id: "award-2",
+      tags: [],
+    },
+    {
+      id: "award-3",
+    },
+  ];
+  assert.deepEqual(extractAwardeePubkeys(awards), []);
+});
+
+test("buildFollowAwardeesEvent throws when contactListEvent is null", () => {
+  assert.throws(
+    () =>
+      buildFollowAwardeesEvent({
+        pubkey: "user",
+        contactListEvent: null,
+        awardeePubkeys: ["alice"],
+        createdAt: 1,
+      }),
+    /contactListEvent/i
+  );
+});
+
+test("buildFollowAwardeesEvent throws when contactListEvent is undefined", () => {
+  assert.throws(
+    () =>
+      buildFollowAwardeesEvent({
+        pubkey: "user",
+        contactListEvent: undefined,
+        awardeePubkeys: ["alice"],
+        createdAt: 1,
+      }),
+    /contactListEvent/i
+  );
+});
+
+test("buildFollowAwardeesEvent preserves existing p tags in order and appends new awardees", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "existing-1"],
+      ["p", "existing-2"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["new-1", "new-2"],
+    createdAt: 100,
+  });
+  assert.equal(event.kind, 3);
+  assert.equal(event.pubkey, "user");
+  assert.equal(event.created_at, 100);
+  assert.deepEqual(event.tags, [
+    ["p", "existing-1"],
+    ["p", "existing-2"],
+    ["p", "new-1"],
+    ["p", "new-2"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent dedupes awardees present in existing follows", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "alice"],
+      ["p", "bob"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["alice", "carol", "carol", "bob"],
+    createdAt: 200,
+  });
+  assert.deepEqual(event.tags, [
+    ["p", "alice"],
+    ["p", "bob"],
+    ["p", "carol"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent preserves non-p tags after p tags", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "alice"],
+      ["t", "topic"],
+      ["p", "bob"],
+      ["r", "wss://relay.example"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["carol"],
+    createdAt: 300,
+  });
+  assert.deepEqual(event.tags, [
+    ["p", "alice"],
+    ["p", "bob"],
+    ["p", "carol"],
+    ["t", "topic"],
+    ["r", "wss://relay.example"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent uses contactListEvent.content and kind 3", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "{\"wss://relay.example\":{\"read\":true,\"write\":true}}",
+    tags: [],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["alice"],
+    createdAt: 400,
+  });
+  assert.equal(event.kind, 3);
+  assert.equal(event.content, "{\"wss://relay.example\":{\"read\":true,\"write\":true}}");
+  assert.equal(event.created_at, 400);
+  assert.deepEqual(event.tags, [["p", "alice"]]);
+});
+
+test("buildFollowAwardeesEvent defaults missing content to empty string", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    tags: [],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: [],
+    createdAt: 500,
+  });
+  assert.equal(event.content, "");
+  assert.deepEqual(event.tags, []);
 });

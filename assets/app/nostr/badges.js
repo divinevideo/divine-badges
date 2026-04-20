@@ -1,6 +1,7 @@
 import {
   BADGE_AWARD,
   BADGE_DEFINITION,
+  CONTACT_LIST,
   PROFILE_BADGES,
   PROFILE_BADGES_D,
 } from "./constants.js?v=2026-04-14-1";
@@ -259,6 +260,58 @@ export function buildBadgeViewerCollectionState({
   );
   if (pair) return { status: "accepted", award, pair };
   return { status: "awarded", award };
+}
+
+export function extractAwardeePubkeys(awards) {
+  const seen = new Set();
+  for (const award of awards || []) {
+    for (const tag of award?.tags || []) {
+      if (tag[0] === "p" && typeof tag[1] === "string" && tag[1]) {
+        seen.add(tag[1]);
+      }
+    }
+  }
+  return [...seen];
+}
+
+export function buildFollowAwardeesEvent({
+  pubkey,
+  contactListEvent,
+  awardeePubkeys,
+  createdAt,
+}) {
+  if (contactListEvent === null || contactListEvent === undefined) {
+    throw new Error(
+      "contactListEvent is required to build a follow-awardees event; fetch the latest kind:3 first"
+    );
+  }
+  const existingTags = contactListEvent.tags || [];
+  const existingPubkeys = new Set();
+  const pTags = [];
+  const otherTags = [];
+  for (const tag of existingTags) {
+    if (tag[0] === "p" && typeof tag[1] === "string" && tag[1]) {
+      if (!existingPubkeys.has(tag[1])) {
+        existingPubkeys.add(tag[1]);
+        pTags.push(tag);
+      }
+    } else {
+      otherTags.push(tag);
+    }
+  }
+  for (const pk of awardeePubkeys || []) {
+    if (typeof pk === "string" && pk && !existingPubkeys.has(pk)) {
+      existingPubkeys.add(pk);
+      pTags.push(["p", pk]);
+    }
+  }
+  return {
+    kind: CONTACT_LIST,
+    pubkey,
+    content: contactListEvent.content || "",
+    created_at: createdAt,
+    tags: [...pTags, ...otherTags],
+  };
 }
 
 export function buildAcceptedBadgeRecords(profileEvent, awards, badgeDefinitions) {
