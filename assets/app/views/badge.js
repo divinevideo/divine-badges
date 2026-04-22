@@ -1,28 +1,45 @@
 import {
   BADGE_AWARD,
   BADGE_DEFINITION,
+  CONTACT_LIST,
   DIVINE_RELAY,
+  PROFILE_BADGES,
+  PROFILE_BADGES_D,
   RELAY_LIST_METADATA,
-} from "/app/nostr/constants.js?v=2026-04-14-3";
+} from "/app/nostr/constants.js?v=2026-04-20-1";
 import {
   discoverReadRelays,
-  relayPublish,
   relayQueryMany,
-} from "/app/nostr/relay.js?v=2026-04-14-3";
+  relayQueryManyDetailed,
+} from "/app/nostr/relay.js?v=2026-04-20-1";
 import {
   beginDivineOAuth,
   bootstrapSession,
   clearStoredSession,
 } from "/app/auth/session.js?v=2026-04-14-3";
-import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
+  loadCreatorProfile,
+  loadDivineProfile,
+} from "/app/auth/profile.js?v=2026-04-20-1";
+import {
+  buildAcceptProfileBadgesEvent,
   buildBadgeAwardEvent,
+  buildBadgeViewerCollectionState,
+  buildFollowAwardeesEvent,
+  buildHideProfileBadgesEvent,
   canAwardBadge,
   coordinateFromBadgeDefinition,
+  extractAwardeePubkeys,
   findTag,
   parseRecipientInput,
   shouldOpenAwardPanel,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+} from "/app/nostr/badges.js?v=2026-04-20-1";
+import {
+  publishSignedToWriteRelays,
+  publishSucceeded,
+  readLocalRelays,
+  summarizePublishResult,
+} from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
   parseBadgeCoordinate,
   resolveProfileId,
@@ -34,6 +51,7 @@ import {
   shorten,
   showStatus,
 } from "/app/views/common.js?v=2026-04-14-4";
+import { renderSafeMarkdown } from "/app/views/markdown.js?v=2026-04-20-1";
 
 const BADGE_META = {
   "diviner-of-the-day": { mark: "D", variant: "day", kind: "Daily badge" },
@@ -104,6 +122,14 @@ async function restoreOptionalSession() {
   }
 }
 
+function latestProfileBadgesEvent(events) {
+  if (!Array.isArray(events) || !events.length) return null;
+  return events.reduce((latest, candidate) => {
+    if (!latest) return candidate;
+    return candidate.created_at > latest.created_at ? candidate : latest;
+  }, null);
+}
+
 async function loadBadgePageState() {
   const coordinate = parseBadgeCoordinate(routeCoordinate());
   const coordinateValue = `${coordinate.kind}:${coordinate.pubkey}:${coordinate.identifier}`;
@@ -121,7 +147,7 @@ async function loadBadgePageState() {
       },
     ]),
     relayQueryMany(badgeReadRelays, [{ kinds: [BADGE_AWARD], "#a": [coordinateValue] }]),
-    loadDivineProfile(coordinate.pubkey),
+    loadCreatorProfile(coordinate.pubkey, { relays: badgeReadRelays }),
   ]);
   const badge = definitions[0];
   if (!badge) {
@@ -137,9 +163,97 @@ async function loadBadgePageState() {
   const awardees = await Promise.all(
     recipientPubkeys.map(async (pubkey) => ({
       pubkey,
-      profile: await loadDivineProfile(pubkey),
+      profile: await loadCreatorProfile(pubkey, { relays: badgeReadRelays }),
     }))
   );
+
+  let viewerProfileEvent = null;
+  let viewerProfileBadgesStatus = "unknown";
+  let viewerCollectionState = { status: "logged-out" };
+  let viewerReadRelays = null;
+  const awardeePubkeys = extractAwardeePubkeys(awards);
+  let contactListEvent = null;
+  let contactListStatus = "unknown";
+  let missingFollows = [];
+  if (signerPubkey) {
+    viewerReadRelays = await discoverReadRelays({
+      pubkeys: [signerPubkey],
+      seedRelays: [DIVINE_RELAY],
+    });
+    const [viewerProfileDetailed, viewerAwards] = await Promise.all([
+      relayQueryManyDetailed(viewerReadRelays, [
+        {
+          kinds: [PROFILE_BADGES],
+          authors: [signerPubkey],
+          "#d": [PROFILE_BADGES_D],
+        },
+      ]),
+      relayQueryMany(viewerReadRelays, [
+        {
+          kinds: [BADGE_AWARD],
+          "#a": [coordinateValue],
+          "#p": [signerPubkey],
+        },
+      ]),
+    ]);
+    const anyViewerProfileOk = viewerProfileDetailed.relays.some(
+      (relay) => relay.status === "ok"
+    );
+    const newestViewerProfile = latestProfileBadgesEvent(
+      viewerProfileDetailed.events
+    );
+    if (!anyViewerProfileOk) {
+      viewerProfileBadgesStatus = "unknown";
+      viewerProfileEvent = null;
+    } else if (!newestViewerProfile) {
+      viewerProfileBadgesStatus = "empty";
+      viewerProfileEvent = {
+        kind: PROFILE_BADGES,
+        pubkey: signerPubkey,
+        tags: [["d", PROFILE_BADGES_D]],
+        content: "",
+        created_at: 0,
+      };
+    } else {
+      viewerProfileBadgesStatus = "loaded";
+      viewerProfileEvent = newestViewerProfile;
+    }
+    viewerCollectionState = buildBadgeViewerCollectionState({
+      signerPubkey,
+      badgeCoordinate: coordinateValue,
+      awards: viewerAwards.concat(awards),
+      profileEvent: viewerProfileEvent,
+    });
+
+    if (awardeePubkeys.length > 0) {
+      const contactResult = await relayQueryManyDetailed(viewerReadRelays, [
+        { kinds: [CONTACT_LIST], authors: [signerPubkey], limit: 1 },
+      ]);
+      const anyOk = contactResult.relays.some((r) => r.status === "ok");
+      if (!anyOk) {
+        contactListStatus = "unknown";
+        contactListEvent = null;
+        missingFollows = awardeePubkeys.slice();
+      } else if (contactResult.events.length === 0) {
+        contactListStatus = "empty";
+        contactListEvent = null;
+        missingFollows = awardeePubkeys.slice();
+      } else {
+        contactListStatus = "loaded";
+        contactListEvent = contactResult.events.reduce((latest, candidate) => {
+          if (!latest) return candidate;
+          return candidate.created_at > latest.created_at ? candidate : latest;
+        }, null);
+        const existing = new Set(
+          (contactListEvent?.tags || [])
+            .filter((tag) => tag[0] === "p" && typeof tag[1] === "string" && tag[1])
+            .map((tag) => tag[1])
+        );
+        missingFollows = awardeePubkeys.filter((pk) => !existing.has(pk));
+      }
+    }
+  }
+
   return {
     coordinate,
     coordinateValue,
@@ -147,6 +261,14 @@ async function loadBadgePageState() {
     awards,
     awardees,
     issuer,
+    viewerProfileEvent,
+    viewerProfileBadgesStatus,
+    viewerCollectionState,
+    viewerReadRelays,
+    contactListEvent,
+    contactListStatus,
+    awardeePubkeys,
+    missingFollows,
   };
 }
 
@@ -261,12 +383,49 @@ function awardPanelMarkup(awardState) {
   `;
 }
 
+function followAwardeesMarkup(state) {
+  if (!signerPubkey) return "";
+  const awardeePubkeys = state.awardeePubkeys || [];
+  if (!awardeePubkeys.length) return "";
+  const status = state.contactListStatus;
+  if (status === "unknown") {
+    return `<div class="follow-awardees-warning">Could not load your contact list. <a href="/relays">Check relay settings</a>.</div>`;
+  }
+  if (status === "loaded" || status === "empty") {
+    const missing = state.missingFollows || [];
+    if (missing.length > 0) {
+      return `<button id="follow-awardees" class="secondary" type="button">Follow awardees (${missing.length})</button>`;
+    }
+    return `<div class="follow-awardees-note">You already follow all awardees.</div>`;
+  }
+  return "";
+}
+
+function collectionStateMarkup(state) {
+  const status = state.viewerCollectionState?.status;
+  switch (status) {
+    case "accepted":
+      return `<div class="collection-state collected"><strong>This badge is on your profile.</strong> <button data-action="hide" class="secondary" id="collection-hide" type="button">Hide from profile</button></div>`;
+    case "awarded":
+      return `<div class="collection-state awarded"><strong>You earned this badge.</strong> <button data-action="accept" class="primary" id="collection-accept" type="button">Accept</button></div>`;
+    case "not-awarded":
+      return `<div class="collection-state none">You have not been awarded this badge yet.</div>`;
+    case "logged-out":
+    default:
+      return `<div class="collection-state none">Log in to see if this badge is yours.</div>`;
+  }
+}
+
 function badgePageMarkup(state, canAward, awardState) {
   const badge = badgePresentation(state);
   const awardCount = state.awardees.length;
   const medal = badge.image
     ? `<img src="${esc(badge.image)}" alt="">`
     : `<span class="medal-letter">${esc(badge.mark)}</span>`;
+  const editHref = `/b/${encodeURIComponent(routeCoordinate())}/edit`;
+  const ownerActions = canAward
+    ? `<div class="owner-actions"><a class="edit-badge-link" href="${esc(editHref)}">Edit badge</a></div>`
+    : "";
   return `
     <div class="page">
       <section class="hero-card">
@@ -275,15 +434,20 @@ function badgePageMarkup(state, canAward, awardState) {
             <div class="eyebrow">${esc(badge.kind)}</div>
             <h2>${esc(badge.name)}</h2>
           </div>
-          <p>${esc(badge.description)}</p>
+          <div class="description">${renderSafeMarkdown(badge.description)}</div>
           <div class="meta-row">
             ${heroMetaPill("Issuer", state.issuer.displayName)}
             ${heroMetaPill("Awarded", `${awardCount} ${awardCount === 1 ? "time" : "times"}`)}
             ${heroMetaPill("Kind", String(state.coordinate.kind))}
           </div>
+          ${ownerActions}
         </div>
         <div class="medal ${esc(badge.variant)}">${medal}</div>
       </section>
+
+      ${collectionStateMarkup(state)}
+
+      ${followAwardeesMarkup(state)}
 
       <div class="layout">
         <section class="section">
@@ -391,8 +555,12 @@ async function publishAward(state, awardState) {
     recipients: awardState.resolved.map((entry) => entry.pubkey),
     createdAt: Math.floor(Date.now() / 1000),
   });
-  const signed = await signer.signEvent(event);
-  await relayPublish(DIVINE_RELAY, signed);
+  return publishSignedToWriteRelays({
+    pubkey: signerPubkey,
+    unsignedEvent: event,
+    signer,
+    localRelays: readLocalRelays(),
+  });
 }
 
 function readAwardInputs(awardState) {
@@ -465,8 +633,28 @@ function bindAwardControls(state, awardState, rerender) {
       clearStatus();
       rerender();
       try {
-        await publishAward(state, awardState);
-        showStatus(getView(), "info", `Awarded to ${awardState.resolved.length} recipient(s).`);
+        const outcome = await publishAward(state, awardState);
+        if (!publishSucceeded(outcome)) {
+          awardState.publishing = false;
+          rerender();
+          showStatus(
+            getView(),
+            "err",
+            `Could not award badge: ${summarizePublishResult(outcome)}`
+          );
+          return;
+        }
+        const recipientCount = awardState.resolved.length;
+        const baseMsg = `Awarded to ${recipientCount} recipient(s).`;
+        if (outcome.result.failed.length > 0) {
+          showStatus(
+            getView(),
+            "info",
+            `${baseMsg} ${summarizePublishResult(outcome)}`
+          );
+        } else {
+          showStatus(getView(), "info", baseMsg);
+        }
         window.setTimeout(() => window.location.reload(), 800);
       } catch (error) {
         awardState.publishing = false;
@@ -474,6 +662,214 @@ function bindAwardControls(state, awardState, rerender) {
         showStatus(getView(), "err", `Could not award badge: ${error.message || error}`);
       }
     };
+  }
+}
+
+async function handleCollectionAction(state, action, rerender) {
+  if (!signerPubkey) return;
+  const current = state.viewerCollectionState;
+  if (!current || (current.status !== "accepted" && current.status !== "awarded")) {
+    return;
+  }
+  const awardId = current.award?.id;
+  if (!awardId) return;
+
+  if (state.viewerProfileBadgesStatus === "unknown") {
+    showStatus(
+      getView(),
+      "err",
+      "Your profile_badges list could not be loaded from any relay. Check relay settings at /relays and try again."
+    );
+    return;
+  }
+
+  const accept = action === "accept";
+  const button = document.getElementById(
+    accept ? "collection-accept" : "collection-hide"
+  );
+  if (button) {
+    button.disabled = true;
+    button.textContent = accept ? "Signing…" : "Updating…";
+  }
+  clearStatus();
+
+  try {
+    const createdAt = Math.floor(Date.now() / 1000);
+    const event = accept
+      ? buildAcceptProfileBadgesEvent({
+          pubkey: signerPubkey,
+          profileEvent: state.viewerProfileEvent,
+          badgeCoordinate: state.coordinateValue,
+          awardId,
+          relayUrl: DIVINE_RELAY,
+          createdAt,
+        })
+      : buildHideProfileBadgesEvent({
+          pubkey: signerPubkey,
+          profileEvent: state.viewerProfileEvent,
+          awardId,
+          createdAt,
+        });
+    const outcome = await publishSignedToWriteRelays({
+      pubkey: signerPubkey,
+      unsignedEvent: event,
+      signer,
+      localRelays: readLocalRelays(),
+    });
+    if (!publishSucceeded(outcome)) {
+      showStatus(
+        getView(),
+        "err",
+        `Could not update badges: ${summarizePublishResult(outcome)}`
+      );
+      if (button) {
+        button.disabled = false;
+        button.textContent = accept ? "Accept" : "Hide from profile";
+      }
+      return;
+    }
+    const viewerReadRelays =
+      state.viewerReadRelays ||
+      (await discoverReadRelays({
+        pubkeys: [signerPubkey],
+        seedRelays: [DIVINE_RELAY],
+      }));
+    state.viewerReadRelays = viewerReadRelays;
+    const refreshedDetailed = await relayQueryManyDetailed(viewerReadRelays, [
+      {
+        kinds: [PROFILE_BADGES],
+        authors: [signerPubkey],
+        "#d": [PROFILE_BADGES_D],
+      },
+    ]);
+    const refreshedAnyOk = refreshedDetailed.relays.some(
+      (relay) => relay.status === "ok"
+    );
+    const refreshedNewest = latestProfileBadgesEvent(refreshedDetailed.events);
+    if (!refreshedAnyOk) {
+      state.viewerProfileBadgesStatus = "unknown";
+      state.viewerProfileEvent = null;
+    } else if (!refreshedNewest) {
+      state.viewerProfileBadgesStatus = "empty";
+      state.viewerProfileEvent = {
+        kind: PROFILE_BADGES,
+        pubkey: signerPubkey,
+        tags: [["d", PROFILE_BADGES_D]],
+        content: "",
+        created_at: 0,
+      };
+    } else {
+      state.viewerProfileBadgesStatus = "loaded";
+      state.viewerProfileEvent = refreshedNewest;
+    }
+    const viewerAwards = await relayQueryMany(viewerReadRelays, [
+      {
+        kinds: [BADGE_AWARD],
+        "#a": [state.coordinateValue],
+        "#p": [signerPubkey],
+      },
+    ]);
+    state.viewerCollectionState = buildBadgeViewerCollectionState({
+      signerPubkey,
+      badgeCoordinate: state.coordinateValue,
+      awards: viewerAwards.concat(state.awards),
+      profileEvent: state.viewerProfileEvent,
+    });
+    if (outcome.result.failed.length > 0) {
+      showStatus(getView(), "info", summarizePublishResult(outcome));
+    }
+    rerender();
+  } catch (error) {
+    showStatus(
+      getView(),
+      "err",
+      `Could not update badges: ${error.message || error}`
+    );
+    if (button) {
+      button.disabled = false;
+      button.textContent = accept ? "Accept" : "Hide from profile";
+    }
+  }
+}
+
+function bindCollectionControls(state, rerender) {
+  if (!signerPubkey) return;
+  const status = state.viewerCollectionState?.status;
+  if (status !== "accepted" && status !== "awarded") return;
+  const acceptButton = document.getElementById("collection-accept");
+  if (acceptButton) {
+    acceptButton.onclick = () => handleCollectionAction(state, "accept", rerender);
+  }
+  const hideButton = document.getElementById("collection-hide");
+  if (hideButton) {
+    hideButton.onclick = () => handleCollectionAction(state, "hide", rerender);
+  }
+}
+
+async function handleFollowAwardeesClick(state, rerender) {
+  const button = document.getElementById("follow-awardees");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "Publishing…";
+  clearStatus();
+  try {
+    const event = buildFollowAwardeesEvent({
+      pubkey: signerPubkey,
+      contactListEvent: state.contactListEvent || {
+        kind: CONTACT_LIST,
+        pubkey: signerPubkey,
+        tags: [],
+        content: "",
+        created_at: 0,
+      },
+      awardeePubkeys: state.missingFollows,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+    const outcome = await publishSignedToWriteRelays({
+      pubkey: signerPubkey,
+      unsignedEvent: event,
+      signer,
+      localRelays: readLocalRelays(),
+    });
+    if (!publishSucceeded(outcome)) {
+      showStatus(
+        getView(),
+        "err",
+        `Could not follow awardees: ${summarizePublishResult(outcome)}`
+      );
+      button.disabled = false;
+      button.textContent = `Follow awardees (${state.missingFollows.length})`;
+      return;
+    }
+    state.contactListEvent = outcome.signed;
+    state.missingFollows = [];
+    state.contactListStatus = "loaded";
+    if (outcome.result.failed.length > 0) {
+      showStatus(
+        getView(),
+        "info",
+        `Followed awardees. ${summarizePublishResult(outcome)}`
+      );
+    } else {
+      showStatus(getView(), "info", "Followed all awardees.");
+    }
+    rerender();
+  } catch (error) {
+    showStatus(
+      getView(),
+      "err",
+      `Could not follow awardees: ${error.message || error}`
+    );
+    button.disabled = false;
+    button.textContent = `Follow awardees (${state.missingFollows.length})`;
+  }
+}
+
+function bindFollowControls(state, rerender) {
+  if (!signerPubkey) return;
+  const button = document.getElementById("follow-awardees");
+  if (button) {
+    button.onclick = () => handleFollowAwardeesClick(state, rerender);
   }
 }
 
@@ -503,6 +899,8 @@ export async function mountBadgePage() {
       if (canAward) {
         bindAwardControls(state, awardState, rerender);
       }
+      bindCollectionControls(state, rerender);
+      bindFollowControls(state, rerender);
     };
 
     rerender();

@@ -7,14 +7,19 @@ pub enum PublicAppAsset {
     NostrBadgesJs,
     NostrConstantsJs,
     NostrIdentityJs,
+    NostrProfileMetadataJs,
+    NostrPublishJs,
     NostrRelayJs,
     ViewsCommonJs,
     ViewsBadgeJs,
+    ViewsEditBadgeJs,
+    ViewsMarkdownJs,
     ViewsMeJs,
     ViewsMeEmptyStateJs,
     ViewsNewJs,
     ViewsNewTextFieldsJs,
     ViewsProfileJs,
+    ViewsRelaysJs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +31,8 @@ pub enum PublicRouteMatch {
     NewPage,
     ProfilePage,
     BadgePage,
+    BadgeEditPage,
+    RelaysPage,
     IssuerPubkey,
     AppAsset(PublicAppAsset),
     NotFound,
@@ -34,6 +41,9 @@ pub enum PublicRouteMatch {
 pub fn classify_public_route(path: &str) -> PublicRouteMatch {
     if path.starts_with("/p/") && path.len() > 3 {
         return PublicRouteMatch::ProfilePage;
+    }
+    if path.starts_with("/b/") && path.ends_with("/edit") && path.len() > "/b//edit".len() {
+        return PublicRouteMatch::BadgeEditPage;
     }
     if path.starts_with("/b/") && path.len() > 3 {
         return PublicRouteMatch::BadgePage;
@@ -44,6 +54,7 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/avatar.png" => PublicRouteMatch::Avatar,
         "/me" => PublicRouteMatch::MePage,
         "/new" => PublicRouteMatch::NewPage,
+        "/relays" => PublicRouteMatch::RelaysPage,
         "/pubkey" => PublicRouteMatch::IssuerPubkey,
         "/app/boot.js" => PublicRouteMatch::AppAsset(PublicAppAsset::BootJs),
         "/app/auth/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs),
@@ -52,9 +63,15 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/app/nostr/badges.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrBadgesJs),
         "/app/nostr/constants.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrConstantsJs),
         "/app/nostr/identity.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrIdentityJs),
+        "/app/nostr/profile_metadata.js" => {
+            PublicRouteMatch::AppAsset(PublicAppAsset::NostrProfileMetadataJs)
+        }
+        "/app/nostr/publish.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrPublishJs),
         "/app/nostr/relay.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrRelayJs),
         "/app/views/badge.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsBadgeJs),
         "/app/views/common.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsCommonJs),
+        "/app/views/edit_badge.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsEditBadgeJs),
+        "/app/views/markdown.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMarkdownJs),
         "/app/views/me.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMeJs),
         "/app/views/me_empty_state.js" => {
             PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMeEmptyStateJs)
@@ -64,6 +81,7 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
             PublicRouteMatch::AppAsset(PublicAppAsset::ViewsNewTextFieldsJs)
         }
         "/app/views/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsProfileJs),
+        "/app/views/relays.js" => PublicRouteMatch::AppAsset(PublicAppAsset::ViewsRelaysJs),
         _ => PublicRouteMatch::NotFound,
     }
 }

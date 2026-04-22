@@ -1,5 +1,3 @@
-import { DIVINE_RELAY } from "/app/nostr/constants.js?v=2026-04-14-3";
-import { relayPublish } from "/app/nostr/relay.js?v=2026-04-14-3";
 import {
   beginDivineOAuth,
   bootstrapSession,
@@ -9,8 +7,14 @@ import { loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
   buildBadgeDefinitionEvent,
   buildNewBadgePreviewModel,
-  coordinateFromBadgeDefinition,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+  coordinatePathFromBadge,
+} from "/app/nostr/badges.js?v=2026-04-20-1";
+import {
+  publishSignedToWriteRelays,
+  publishSucceeded,
+  readLocalRelays,
+  summarizePublishResult,
+} from "/app/nostr/publish.js?v=2026-04-20-1";
 import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
 import { clearStatus, esc, replaceView, showStatus } from "/app/views/common.js?v=2026-04-14-3";
 import {
@@ -365,10 +369,26 @@ async function publishBadge() {
       thumbUrl,
       createdAt: Math.floor(Date.now() / 1000),
     });
-    const signed = await signer.signEvent(event);
-    await relayPublish(DIVINE_RELAY, signed);
-    const coordinate = coordinateFromBadgeDefinition(signed);
-    window.location.href = `/b/${encodeURIComponent(coordinate)}?award=1`;
+    const outcome = await publishSignedToWriteRelays({
+      pubkey: signerPubkey,
+      unsignedEvent: event,
+      signer,
+      localRelays: readLocalRelays(),
+    });
+    if (!publishSucceeded(outcome)) {
+      state.publishing = false;
+      renderStudio();
+      showStatus(
+        getView(),
+        "err",
+        `Could not create badge: ${summarizePublishResult(outcome)}`
+      );
+      return;
+    }
+    if (outcome.result.failed.length > 0) {
+      console.warn(`Badge definition publish partial: ${summarizePublishResult(outcome)}`);
+    }
+    window.location.href = `${coordinatePathFromBadge(outcome.signed)}?award=1`;
   } catch (error) {
     state.publishing = false;
     renderStudio();

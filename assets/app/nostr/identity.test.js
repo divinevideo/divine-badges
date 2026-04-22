@@ -2,80 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  canonicalBadgePath,
   decodeNpub,
+  encodeNaddr,
   normalizeProfileId,
   parseBadgeCoordinate,
   parseNaddr,
 } from "./identity.js";
-
-const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-
-function hexToBytes(hex) {
-  const result = [];
-  for (let index = 0; index < hex.length; index += 2) {
-    result.push(Number.parseInt(hex.slice(index, index + 2), 16));
-  }
-  return result;
-}
-
-function convertBits(data, fromBits, toBits, pad = true) {
-  let accumulator = 0;
-  let bits = 0;
-  const result = [];
-  const maxValue = (1 << toBits) - 1;
-  for (const value of data) {
-    accumulator = (accumulator << fromBits) | value;
-    bits += fromBits;
-    while (bits >= toBits) {
-      bits -= toBits;
-      result.push((accumulator >> bits) & maxValue);
-    }
-  }
-  if (pad && bits > 0) {
-    result.push((accumulator << (toBits - bits)) & maxValue);
-  }
-  return result;
-}
-
-function bech32Polymod(values) {
-  const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  let checksum = 1;
-  for (const value of values) {
-    const high = checksum >> 25;
-    checksum = ((checksum & 0x1ffffff) << 5) ^ value;
-    for (let index = 0; index < generators.length; index += 1) {
-      if ((high >> index) & 1) {
-        checksum ^= generators[index];
-      }
-    }
-  }
-  return checksum;
-}
-
-function encodeNaddr({ identifier, pubkey, kind }) {
-  const identifierBytes = [...new TextEncoder().encode(identifier)];
-  const kindBytes = [(kind >> 24) & 0xff, (kind >> 16) & 0xff, (kind >> 8) & 0xff, kind & 0xff];
-  const payload = [
-    0,
-    identifierBytes.length,
-    ...identifierBytes,
-    2,
-    32,
-    ...hexToBytes(pubkey),
-    3,
-    4,
-    ...kindBytes,
-  ];
-  const prefix = "naddr";
-  const words = convertBits(payload, 8, 5, true);
-  const prefixValues = [...prefix].map((character) => character.charCodeAt(0) & 31);
-  const checksumInput = [...prefixValues, 0, ...words, 0, 0, 0, 0, 0, 0];
-  const polymod = bech32Polymod(checksumInput) ^ 1;
-  const checksum = Array.from({ length: 6 }, (_, index) =>
-    (polymod >> (5 * (5 - index))) & 31
-  );
-  return `${prefix}1${[...words, ...checksum].map((word) => BECH32_ALPHABET[word]).join("")}`;
-}
 
 test("normalizeProfileId accepts hex pubkeys directly", () => {
   const hex = "f".repeat(64);
@@ -138,8 +71,90 @@ test("parseNaddr reads badge coordinates from naddr values", () => {
       pubkey:
         "e21369e63b98f58de8aa171ec9794006eb0118891ae70895106d44525b718d2b",
       identifier: "diviner-of-the-day",
+      relays: [],
       raw:
         "30009:e21369e63b98f58de8aa171ec9794006eb0118891ae70895106d44525b718d2b:diviner-of-the-day",
     }
+  );
+});
+
+test("encodeNaddr + parseNaddr round-trip preserves identifier", () => {
+  const naddr = encodeNaddr({
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    identifier: "scene-stealer",
+  });
+  assert.equal(parseNaddr(naddr).identifier, "scene-stealer");
+});
+
+test("canonicalBadgePath returns /b/<url-encoded-naddr>", () => {
+  const coordinate = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    identifier: "scene-stealer",
+  };
+  const naddr = encodeNaddr(coordinate);
+  assert.equal(
+    canonicalBadgePath(coordinate),
+    `/b/${encodeURIComponent(naddr)}`
+  );
+});
+
+test("encodeNaddr matches the nostr-tools fixture for relays hint", () => {
+  const fixture =
+    "naddr1qvzqqqr48ypzqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqyv8wumn8ghj7un9d3shjtnyd9mxjmn99emxjer9duqq6umrv4hx2ttnw3jkzmr9wgcf7h3d";
+  assert.equal(
+    encodeNaddr({
+      kind: 30009,
+      pubkey: "0000000000000000000000000000000000000000000000000000000000000000",
+      identifier: "scene-stealer",
+      relays: ["wss://relay.divine.video"],
+    }),
+    fixture
+  );
+  const parsed = parseNaddr(fixture);
+  assert.equal(parsed.kind, 30009);
+  assert.equal(
+    parsed.pubkey,
+    "0000000000000000000000000000000000000000000000000000000000000000"
+  );
+  assert.equal(parsed.identifier, "scene-stealer");
+  assert.deepEqual(parsed.relays, ["wss://relay.divine.video"]);
+});
+
+test("encodeNaddr + parseNaddr round-trip with empty relays array", () => {
+  const naddr = encodeNaddr({
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    identifier: "scene-stealer",
+    relays: [],
+  });
+  const parsed = parseNaddr(naddr);
+  assert.equal(parsed.kind, 30009);
+  assert.equal(parsed.pubkey, "0".repeat(64));
+  assert.equal(parsed.identifier, "scene-stealer");
+  assert.deepEqual(parsed.relays, []);
+});
+
+test("parseNaddr returns empty relays array when no relay TLVs are present", () => {
+  const naddr = encodeNaddr({
+    kind: 30009,
+    pubkey: "e21369e63b98f58de8aa171ec9794006eb0118891ae70895106d44525b718d2b",
+    identifier: "diviner-of-the-day",
+  });
+  assert.deepEqual(parseNaddr(naddr).relays, []);
+});
+
+test("canonicalBadgePath includes relay hints when provided", () => {
+  const coordinate = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    identifier: "scene-stealer",
+    relays: ["wss://relay.divine.video"],
+  };
+  const expectedNaddr = encodeNaddr(coordinate);
+  assert.equal(
+    canonicalBadgePath(coordinate),
+    `/b/${encodeURIComponent(expectedNaddr)}`
   );
 });

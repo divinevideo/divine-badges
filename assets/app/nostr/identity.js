@@ -55,6 +55,53 @@ function bytesToHex(bytes) {
   return bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+function hexToBytes(hex) {
+  if (typeof hex !== "string" || hex.length % 2 !== 0) {
+    throw new Error("invalid hex string");
+  }
+  const result = [];
+  for (let index = 0; index < hex.length; index += 2) {
+    const byte = Number.parseInt(hex.slice(index, index + 2), 16);
+    if (Number.isNaN(byte)) {
+      throw new Error("invalid hex character");
+    }
+    result.push(byte);
+  }
+  return result;
+}
+
+function bech32Polymod(values) {
+  const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let checksum = 1;
+  for (const value of values) {
+    const high = checksum >> 25;
+    checksum = ((checksum & 0x1ffffff) << 5) ^ value;
+    for (let index = 0; index < generators.length; index += 1) {
+      if ((high >> index) & 1) {
+        checksum ^= generators[index];
+      }
+    }
+  }
+  return checksum;
+}
+
+function hrpExpand(prefix) {
+  const high = [...prefix].map((character) => character.charCodeAt(0) >> 5);
+  const low = [...prefix].map((character) => character.charCodeAt(0) & 31);
+  return [...high, 0, ...low];
+}
+
+function encodeBech32(prefix, words) {
+  const checksumInput = [...hrpExpand(prefix), ...words, 0, 0, 0, 0, 0, 0];
+  const polymod = bech32Polymod(checksumInput) ^ 1;
+  const checksum = Array.from({ length: 6 }, (_, index) =>
+    (polymod >> (5 * (5 - index))) & 31
+  );
+  return `${prefix}1${[...words, ...checksum]
+    .map((word) => BECH32_ALPHABET[word])
+    .join("")}`;
+}
+
 function decodeBech32Bytes(value, expectedPrefix) {
   const { prefix, words } = decodeBech32Words(value);
   if (prefix !== expectedPrefix) {
@@ -148,6 +195,7 @@ export function parseNaddr(value) {
   let identifier = null;
   let pubkey = null;
   let kind = null;
+  const relays = [];
 
   while (index < bytes.length) {
     const type = bytes[index];
@@ -161,6 +209,8 @@ export function parseNaddr(value) {
     }
     if (type === 0) {
       identifier = new TextDecoder().decode(Uint8Array.from(chunk));
+    } else if (type === 1) {
+      relays.push(new TextDecoder().decode(Uint8Array.from(chunk)));
     } else if (type === 2) {
       pubkey = bytesToHex(chunk);
     } else if (type === 3) {
@@ -180,6 +230,63 @@ export function parseNaddr(value) {
     kind,
     pubkey,
     identifier,
+    relays,
     raw: `${kind}:${pubkey}:${identifier}`,
   };
+}
+
+export function encodeNaddr({ kind, pubkey, identifier, relays = [] }) {
+  if (!Number.isInteger(kind) || kind < 0 || kind > 0xffffffff) {
+    throw new Error("invalid naddr kind");
+  }
+  if (typeof pubkey !== "string" || !/^[0-9a-f]{64}$/i.test(pubkey)) {
+    throw new Error("invalid naddr pubkey");
+  }
+  if (typeof identifier !== "string") {
+    throw new Error("invalid naddr identifier");
+  }
+  if (!Array.isArray(relays)) {
+    throw new Error("invalid naddr relays");
+  }
+
+  const identifierBytes = [...new TextEncoder().encode(identifier)];
+  if (identifierBytes.length > 255) {
+    throw new Error("naddr identifier too long");
+  }
+  const pubkeyBytes = hexToBytes(pubkey.toLowerCase());
+  const kindBytes = [
+    (kind >>> 24) & 0xff,
+    (kind >>> 16) & 0xff,
+    (kind >>> 8) & 0xff,
+    kind & 0xff,
+  ];
+
+  const payload = [];
+  // kind (type 3)
+  payload.push(3, 4, ...kindBytes);
+  // author (type 2)
+  payload.push(2, 32, ...pubkeyBytes);
+  // relays (type 1) — one TLV per URL
+  for (const relay of relays) {
+    if (typeof relay !== "string") {
+      throw new Error("invalid naddr relay");
+    }
+    const relayBytes = [...new TextEncoder().encode(relay)];
+    if (relayBytes.length > 255) {
+      throw new Error("naddr relay url too long");
+    }
+    payload.push(1, relayBytes.length, ...relayBytes);
+  }
+  // identifier (type 0)
+  payload.push(0, identifierBytes.length, ...identifierBytes);
+
+  const words = convertBits(payload, 8, 5, true);
+  return encodeBech32("naddr", words);
+}
+
+export function canonicalBadgePath(coordinate) {
+  const { kind, pubkey, identifier, relays = [] } = coordinate;
+  return `/b/${encodeURIComponent(
+    encodeNaddr({ kind, pubkey, identifier, relays })
+  )}`;
 }

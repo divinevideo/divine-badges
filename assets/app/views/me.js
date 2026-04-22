@@ -12,7 +12,14 @@ import {
   relayPublish,
   relayQuery,
   relayQueryMany,
-} from "/app/nostr/relay.js?v=2026-04-14-3";
+  relayQueryManyDetailed,
+} from "/app/nostr/relay.js?v=2026-04-20-1";
+import {
+  publishSignedToWriteRelays,
+  publishSucceeded,
+  readLocalRelays,
+  summarizePublishResult,
+} from "/app/nostr/publish.js?v=2026-04-20-1";
 import {
   beginDivineOAuth,
   bootstrapSession,
@@ -27,11 +34,13 @@ import {
   buildAcceptedBadgeRecords,
   buildAcceptProfileBadgesEvent,
   buildAwardedBadgeRecords,
+  buildCreatedBadgeActions,
   buildHideProfileBadgesEvent,
   coordinateFromBadgeDefinition,
+  coordinatePathFromBadge,
   extractProfileBadgePairs,
   findTag,
-} from "/app/nostr/badges.js?v=2026-04-14-3";
+} from "/app/nostr/badges.js?v=2026-04-20-2";
 import {
   clearStatus,
   esc,
@@ -40,6 +49,7 @@ import {
   showStatus,
 } from "/app/views/common.js?v=2026-04-14-3";
 import { buildMeEmptyStateMarkup } from "/app/views/me_empty_state.js?v=2026-04-16-1";
+import { renderSafeMarkdown } from "/app/views/markdown.js?v=2026-04-20-1";
 
 const DIVINE_API_BASE = "https://api.divine.video";
 const BADGE_META = {
@@ -219,9 +229,9 @@ async function loadBadges(pubkey) {
       seedRelays: [DIVINE_RELAY],
       relayListKind: RELAY_LIST_METADATA,
     });
-    const [awardEvents, profileBadges, createdBadges] = await Promise.all([
+    const [awardEvents, profileBadgesDetailed, createdBadges] = await Promise.all([
       relayQueryMany(profileReadRelays, [{ kinds: [BADGE_AWARD], "#p": [pubkey] }]),
-      relayQueryMany(profileReadRelays, [
+      relayQueryManyDetailed(profileReadRelays, [
         {
           kinds: [PROFILE_BADGES],
           authors: [pubkey],
@@ -231,7 +241,28 @@ async function loadBadges(pubkey) {
       ]),
       relayQueryMany(profileReadRelays, [{ kinds: [BADGE_DEFINITION], authors: [pubkey] }]),
     ]);
-    const profileEvent = newestFirst(profileBadges)[0] || null;
+    const anyProfileBadgesOk = profileBadgesDetailed.relays.some(
+      (relay) => relay.status === "ok"
+    );
+    const newestProfileEvent = newestFirst(profileBadgesDetailed.events)[0] || null;
+    let profileBadgesStatus;
+    let profileEvent;
+    if (!anyProfileBadgesOk) {
+      profileBadgesStatus = "unknown";
+      profileEvent = null;
+    } else if (!newestProfileEvent) {
+      profileBadgesStatus = "empty";
+      profileEvent = {
+        kind: PROFILE_BADGES,
+        pubkey,
+        tags: [["d", PROFILE_BADGES_D]],
+        content: "",
+        created_at: 0,
+      };
+    } else {
+      profileBadgesStatus = "loaded";
+      profileEvent = newestProfileEvent;
+    }
     const coordinates = new Set(
       awardEvents.map((award) => findTag(award.tags, "a")).filter(Boolean)
     );
@@ -264,6 +295,7 @@ async function loadBadges(pubkey) {
     const badgeDefinitions = [...definitionsByCoordinate.values()];
     renderBadgeTabs(pubkey, {
       profileEvent,
+      profileBadgesStatus,
       awarded: buildAwardedBadgeRecords(awardEvents, badgeDefinitions),
       accepted: buildAcceptedBadgeRecords(profileEvent, awardEvents, badgeDefinitions),
       created: newestFirst(createdBadges),
@@ -289,19 +321,76 @@ function getAcceptedAwardIds(records) {
   return new Set(records.map((record) => record.award.id));
 }
 
+function renderCreatedBadgeActionsMarkup(actions, badge) {
+  const parts = [];
+  if (actions.view) {
+    parts.push(
+      `<a class="secondary" href="${esc(actions.view.href)}">${esc(actions.view.label)}</a>`
+    );
+  }
+  if (actions.edit) {
+    parts.push(
+      `<a class="secondary" href="${esc(actions.edit.href)}">${esc(actions.edit.label)}</a>`
+    );
+  }
+  if (actions.award) {
+    parts.push(
+      `<a class="primary" href="${esc(actions.award.href)}">${esc(actions.award.label)}</a>`
+    );
+  }
+  if (actions.share) {
+    parts.push(
+      `<button type="button" class="secondary" data-action="copy-link" data-share-href="${esc(
+        actions.share.href
+      )}">${esc(actions.share.label)}</button>`
+    );
+  }
+  return parts.join("");
+}
+
+function wireCreatedBadgeActionHandlers(root) {
+  if (!root) return;
+  root.querySelectorAll('button[data-action="copy-link"]').forEach((button) => {
+    button.onclick = async () => {
+      const relative = button.dataset.shareHref || "";
+      const absolute = typeof window !== "undefined" && window.location
+        ? `${window.location.origin}${relative}`
+        : relative;
+      const originalLabel = button.textContent;
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(absolute);
+        } else {
+          throw new Error("clipboard unavailable");
+        }
+        button.textContent = "Copied!";
+      } catch {
+        button.textContent = "Copy failed";
+      }
+      setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 1000);
+    };
+  });
+}
+
 function badgeCardMarkup(record, actions = "") {
   const meta = getBadgeMeta(record);
   const period = findTag(record.award?.tags || [], "period");
   const issuer = record.badge?.pubkey ? shorten(record.badge.pubkey) : "";
   const description = findTag(record.badge?.tags || [], "description");
+  const badgePath = record.badge ? coordinatePathFromBadge(record.badge) : null;
+  const nameMarkup = badgePath
+    ? `<a class="name" href="${esc(badgePath)}">${esc(meta.name)}</a>`
+    : `<div class="name">${esc(meta.name)}</div>`;
   return `
     <li class="badge ${meta.variant}${record.accepted ? " accepted" : ""}">
       <div class="med">${esc(meta.emoji)}</div>
       <div class="info">
-        <div class="name">${esc(meta.name)}</div>
+        ${nameMarkup}
         <div class="period">${esc(period || "—")}</div>
         ${issuer ? `<div class="issuer">Issuer: ${esc(issuer)}</div>` : ""}
-        ${description ? `<div class="description">${esc(description)}</div>` : ""}
+        ${description ? `<div class="description">${renderSafeMarkdown(description)}</div>` : ""}
       </div>
       <div class="actions">${actions}</div>
     </li>
@@ -354,14 +443,19 @@ function renderBadgeTabs(pubkey, state) {
         return;
       }
       tabPanel.innerHTML = `<ul class="badges">${state.created
-        .map((badge) =>
-          badgeCardMarkup({
-            badge,
-            coordinate: coordinateFromBadgeDefinition(badge),
-            award: null,
-          })
-        )
+        .map((badge) => {
+          const actions = buildCreatedBadgeActions({ badge, isOwner: true });
+          return badgeCardMarkup(
+            {
+              badge,
+              coordinate: coordinateFromBadgeDefinition(badge),
+              award: null,
+            },
+            renderCreatedBadgeActionsMarkup(actions, badge)
+          );
+        })
         .join("")}</ul>`;
+      wireCreatedBadgeActionHandlers(tabPanel);
       return;
     }
 
@@ -398,6 +492,14 @@ function renderBadgeTabs(pubkey, state) {
 }
 
 async function handleAwardAction(pubkey, state, action, button) {
+  if (state.profileBadgesStatus === "unknown") {
+    showStatus(
+      getView(),
+      "err",
+      "Your profile_badges list could not be loaded from any relay. Check relay settings at /relays and try again."
+    );
+    return;
+  }
   button.disabled = true;
   button.textContent = action === "accept" ? "Signing…" : "Updating…";
   try {
@@ -418,9 +520,33 @@ async function handleAwardAction(pubkey, state, action, button) {
             awardId: button.dataset.awardId,
             createdAt,
           });
-    const signed = await signer.signEvent(event);
-    await relayPublish(DIVINE_RELAY, signed);
-    await loadBadges(pubkey);
+    const outcome = await publishSignedToWriteRelays({
+      pubkey,
+      unsignedEvent: event,
+      signer,
+      localRelays: readLocalRelays(),
+    });
+    if (publishSucceeded(outcome)) {
+      await loadBadges(pubkey);
+      if (outcome.result.failed.length > 0) {
+        const failedUrls = outcome.result.failed
+          .map((entry) => entry.relayUrl)
+          .join(", ");
+        showStatus(
+          getView(),
+          "info",
+          `${summarizePublishResult(outcome)} (failed: ${failedUrls})`
+        );
+      }
+    } else {
+      showStatus(
+        getView(),
+        "err",
+        `Could not update badges: ${summarizePublishResult(outcome)}`
+      );
+      button.disabled = false;
+      button.textContent = action === "accept" ? "Accept" : "Hide";
+    }
   } catch (error) {
     showStatus(getView(), "err", `Could not update badges: ${error.message || error}`);
     button.disabled = false;

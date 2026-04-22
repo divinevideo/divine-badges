@@ -2,21 +2,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  awardIncludesRecipient,
   buildAcceptedBadgeRecords,
   buildAcceptProfileBadgesEvent,
   buildAwardedBadgeRecords,
   buildBadgeAwardEvent,
   buildBadgeDefinitionEvent,
+  buildBadgeViewerCollectionState,
+  buildCreatedBadgeActions,
+  buildEditedBadgeDefinitionEvent,
+  buildFollowAwardeesEvent,
   buildNewBadgePreviewModel,
   canAwardBadge,
+  coordinatePathFromBadge,
   deriveBadgeSlug,
   buildHideProfileBadgesEvent,
+  extractAwardeePubkeys,
   parseRecipientInput,
   buildProfileBadgeTags,
   coordinateFromBadgeDefinition,
   extractProfileBadgePairs,
   shouldOpenAwardPanel,
 } from "./badges.js";
+import { parseNaddr } from "./identity.js";
 
 test("extractProfileBadgePairs preserves ordered a/e pairs", () => {
   const profileEvent = {
@@ -73,6 +81,52 @@ test("buildAcceptProfileBadgesEvent appends a new pair", () => {
     ["a", "30009:issuer:week", "wss://relay.divine.video"],
     ["e", "award-2", "wss://relay.divine.video"],
   ]);
+});
+
+test("buildAcceptProfileBadgesEvent rejects null profileEvent", () => {
+  assert.throws(
+    () => buildAcceptProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: null,
+      badgeCoordinate: "30009:a:b",
+      awardId: "x",
+      relayUrl: "wss://r",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+  assert.throws(
+    () => buildAcceptProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: undefined,
+      badgeCoordinate: "30009:a:b",
+      awardId: "x",
+      relayUrl: "wss://r",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+});
+
+test("buildHideProfileBadgesEvent rejects null profileEvent", () => {
+  assert.throws(
+    () => buildHideProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: null,
+      awardId: "x",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
+  assert.throws(
+    () => buildHideProfileBadgesEvent({
+      pubkey: "user",
+      profileEvent: undefined,
+      awardId: "x",
+      createdAt: 1,
+    }),
+    /profileEvent/i,
+  );
 });
 
 test("buildHideProfileBadgesEvent removes only the targeted award pair", () => {
@@ -133,6 +187,20 @@ test("coordinateFromBadgeDefinition builds the canonical a-tag value", () => {
     }),
     "30009:issuer:diviner-of-the-day"
   );
+});
+
+test("coordinatePathFromBadge builds a canonical /b/ URL", () => {
+  const path = coordinatePathFromBadge({
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"], ["name", "Scene Stealer"]],
+  });
+  assert.ok(path.startsWith("/b/"));
+  const naddr = decodeURIComponent(path.slice(3));
+  const parsed = parseNaddr(naddr);
+  assert.equal(parsed.kind, 30009);
+  assert.equal(parsed.pubkey, "0".repeat(64));
+  assert.equal(parsed.identifier, "scene-stealer");
 });
 
 test("buildAwardedBadgeRecords joins awards to badge definitions", () => {
@@ -264,6 +332,52 @@ test("buildBadgeDefinitionEvent uses explicit image and thumb URLs", () => {
   ]);
 });
 
+test("buildEditedBadgeDefinitionEvent preserves existing identifier", () => {
+  const existing = {
+    kind: 30009,
+    pubkey: "author",
+    created_at: 100,
+    tags: [
+      ["d", "scene-stealer"],
+      ["name", "Old name"],
+      ["description", "Old desc"],
+      ["image", "https://old.example/img"],
+      ["thumb", "https://old.example/thumb"],
+      ["stale", "whatever"], // unrelated tag
+    ],
+    content: "ignore",
+  };
+  const edited = buildEditedBadgeDefinitionEvent({
+    existingEvent: existing,
+    pubkey: "author",
+    name: "New name",
+    description: "New desc",
+    imageUrl: "https://new.example/img",
+    thumbUrl: "https://new.example/thumb",
+    createdAt: 200,
+  });
+  assert.equal(edited.kind, 30009);
+  assert.equal(edited.pubkey, "author");
+  assert.equal(edited.content, "");
+  assert.equal(edited.created_at, 200);
+  // d is preserved
+  assert.deepEqual(edited.tags[0], ["d", "scene-stealer"]);
+  // name/description/image/thumb are replaced with new values
+  assert.equal(edited.tags.find((t) => t[0] === "name")?.[1], "New name");
+  assert.equal(edited.tags.find((t) => t[0] === "description")?.[1], "New desc");
+  assert.equal(edited.tags.find((t) => t[0] === "image")?.[1], "https://new.example/img");
+  assert.equal(edited.tags.find((t) => t[0] === "thumb")?.[1], "https://new.example/thumb");
+  // each of those tags appears exactly once (no duplication)
+  ["name", "description", "image", "thumb", "d"].forEach((key) => {
+    assert.equal(edited.tags.filter((t) => t[0] === key).length, 1, `exactly one ${key} tag`);
+  });
+});
+
+test("buildEditedBadgeDefinitionEvent rejects missing existing event", () => {
+  assert.throws(() => buildEditedBadgeDefinitionEvent({ pubkey: "a", name: "b", createdAt: 1 }), /existing/i);
+  assert.throws(() => buildEditedBadgeDefinitionEvent({ existingEvent: null, pubkey: "a", name: "b", createdAt: 1 }), /existing/i);
+});
+
 test("parseRecipientInput splits and deduplicates mixed separators", () => {
   assert.deepEqual(
     parseRecipientInput("npub1alice\nabcdef1234, abcdef1234 , npub1alice"),
@@ -305,4 +419,382 @@ test("shouldOpenAwardPanel reads the route query flag", () => {
   assert.equal(shouldOpenAwardPanel("?award=1"), true);
   assert.equal(shouldOpenAwardPanel("?award=0"), false);
   assert.equal(shouldOpenAwardPanel(""), false);
+});
+
+test("awardIncludesRecipient matches a p-tag for the given pubkey", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "alice"],
+      ["p", "bob"],
+    ],
+  };
+  assert.equal(awardIncludesRecipient(award, "alice"), true);
+  assert.equal(awardIncludesRecipient(award, "bob"), true);
+});
+
+test("awardIncludesRecipient returns false when the pubkey is absent", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "alice"],
+    ],
+  };
+  assert.equal(awardIncludesRecipient(award, "carol"), false);
+});
+
+test("awardIncludesRecipient handles missing tags and pubkey inputs", () => {
+  assert.equal(awardIncludesRecipient(null, "alice"), false);
+  assert.equal(awardIncludesRecipient({}, "alice"), false);
+  assert.equal(awardIncludesRecipient({ tags: [["p", "alice"]] }, ""), false);
+  assert.equal(
+    awardIncludesRecipient({ tags: [["p", "alice"]] }, undefined),
+    false
+  );
+});
+
+test("buildBadgeViewerCollectionState returns logged-out without a signer", () => {
+  assert.deepEqual(
+    buildBadgeViewerCollectionState({
+      signerPubkey: null,
+      badgeCoordinate: "30009:issuer:day",
+      awards: [],
+      profileEvent: null,
+    }),
+    { status: "logged-out" }
+  );
+});
+
+test("buildBadgeViewerCollectionState returns not-awarded when signer has no matching award", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "someone-else"],
+      ],
+    },
+  ];
+  assert.deepEqual(
+    buildBadgeViewerCollectionState({
+      signerPubkey: "viewer",
+      badgeCoordinate: "30009:issuer:day",
+      awards,
+      profileEvent: null,
+    }),
+    { status: "not-awarded" }
+  );
+});
+
+test("buildBadgeViewerCollectionState returns awarded when viewer has award but profile lacks pair", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent: { tags: [["d", "profile_badges"]] },
+  });
+  assert.deepEqual(result, { status: "awarded", award });
+});
+
+test("buildBadgeViewerCollectionState returns accepted when profile pair matches coordinate and award", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const profileEvent = {
+    tags: [
+      ["d", "profile_badges"],
+      ["a", "30009:issuer:day"],
+      ["e", "award-1"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent,
+  });
+  assert.deepEqual(result, {
+    status: "accepted",
+    award,
+    pair: {
+      a: "30009:issuer:day",
+      aRelay: undefined,
+      e: "award-1",
+      eRelay: undefined,
+    },
+  });
+});
+
+test("buildBadgeViewerCollectionState picks the award that includes the viewer", () => {
+  const otherAward = {
+    id: "award-other",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "someone-else"],
+    ],
+  };
+  const viewerAward = {
+    id: "award-viewer",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [otherAward, viewerAward],
+    profileEvent: null,
+  });
+  assert.deepEqual(result, { status: "awarded", award: viewerAward });
+});
+
+test("buildBadgeViewerCollectionState ignores profile pair when award id does not match", () => {
+  const award = {
+    id: "award-1",
+    tags: [
+      ["a", "30009:issuer:day"],
+      ["p", "viewer"],
+    ],
+  };
+  const profileEvent = {
+    tags: [
+      ["d", "profile_badges"],
+      ["a", "30009:issuer:day"],
+      ["e", "different-award-id"],
+    ],
+  };
+  const result = buildBadgeViewerCollectionState({
+    signerPubkey: "viewer",
+    badgeCoordinate: "30009:issuer:day",
+    awards: [award],
+    profileEvent,
+  });
+  assert.deepEqual(result, { status: "awarded", award });
+});
+
+test("extractAwardeePubkeys returns [] for empty or missing input", () => {
+  assert.deepEqual(extractAwardeePubkeys([]), []);
+  assert.deepEqual(extractAwardeePubkeys(undefined), []);
+  assert.deepEqual(extractAwardeePubkeys(null), []);
+});
+
+test("extractAwardeePubkeys deduplicates p-tag values across awards", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "alice"],
+        ["p", "bob"],
+      ],
+    },
+    {
+      id: "award-2",
+      tags: [
+        ["a", "30009:issuer:day"],
+        ["p", "bob"],
+        ["p", "carol"],
+      ],
+    },
+  ];
+  assert.deepEqual(extractAwardeePubkeys(awards), ["alice", "bob", "carol"]);
+});
+
+test("extractAwardeePubkeys returns [] when no awards have p tags", () => {
+  const awards = [
+    {
+      id: "award-1",
+      tags: [["a", "30009:issuer:day"]],
+    },
+    {
+      id: "award-2",
+      tags: [],
+    },
+    {
+      id: "award-3",
+    },
+  ];
+  assert.deepEqual(extractAwardeePubkeys(awards), []);
+});
+
+test("buildFollowAwardeesEvent throws when contactListEvent is null", () => {
+  assert.throws(
+    () =>
+      buildFollowAwardeesEvent({
+        pubkey: "user",
+        contactListEvent: null,
+        awardeePubkeys: ["alice"],
+        createdAt: 1,
+      }),
+    /contactListEvent/i
+  );
+});
+
+test("buildFollowAwardeesEvent throws when contactListEvent is undefined", () => {
+  assert.throws(
+    () =>
+      buildFollowAwardeesEvent({
+        pubkey: "user",
+        contactListEvent: undefined,
+        awardeePubkeys: ["alice"],
+        createdAt: 1,
+      }),
+    /contactListEvent/i
+  );
+});
+
+test("buildFollowAwardeesEvent preserves existing p tags in order and appends new awardees", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "existing-1"],
+      ["p", "existing-2"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["new-1", "new-2"],
+    createdAt: 100,
+  });
+  assert.equal(event.kind, 3);
+  assert.equal(event.pubkey, "user");
+  assert.equal(event.created_at, 100);
+  assert.deepEqual(event.tags, [
+    ["p", "existing-1"],
+    ["p", "existing-2"],
+    ["p", "new-1"],
+    ["p", "new-2"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent dedupes awardees present in existing follows", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "alice"],
+      ["p", "bob"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["alice", "carol", "carol", "bob"],
+    createdAt: 200,
+  });
+  assert.deepEqual(event.tags, [
+    ["p", "alice"],
+    ["p", "bob"],
+    ["p", "carol"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent preserves non-p tags after p tags", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "",
+    tags: [
+      ["p", "alice"],
+      ["t", "topic"],
+      ["p", "bob"],
+      ["r", "wss://relay.example"],
+    ],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["carol"],
+    createdAt: 300,
+  });
+  assert.deepEqual(event.tags, [
+    ["p", "alice"],
+    ["p", "bob"],
+    ["p", "carol"],
+    ["t", "topic"],
+    ["r", "wss://relay.example"],
+  ]);
+});
+
+test("buildFollowAwardeesEvent uses contactListEvent.content and kind 3", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    content: "{\"wss://relay.example\":{\"read\":true,\"write\":true}}",
+    tags: [],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: ["alice"],
+    createdAt: 400,
+  });
+  assert.equal(event.kind, 3);
+  assert.equal(event.content, "{\"wss://relay.example\":{\"read\":true,\"write\":true}}");
+  assert.equal(event.created_at, 400);
+  assert.deepEqual(event.tags, [["p", "alice"]]);
+});
+
+test("buildCreatedBadgeActions returns owner actions for badge author", () => {
+  const badge = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"], ["name", "Scene Stealer"]],
+  };
+  const actions = buildCreatedBadgeActions({ badge, isOwner: true });
+  assert.ok(actions.view.href.startsWith("/b/"));
+  assert.equal(actions.view.label, "View");
+  assert.ok(actions.edit.href.endsWith("/edit"));
+  assert.equal(actions.edit.label, "Edit");
+  assert.ok(actions.award.href.includes("award=1"));
+  assert.equal(actions.award.label, "Award");
+  assert.ok(actions.share.href.startsWith("/b/"));
+  assert.equal(actions.share.label, "Copy link");
+});
+
+test("buildCreatedBadgeActions omits owner-only actions for non-owners", () => {
+  const badge = {
+    kind: 30009,
+    pubkey: "0".repeat(64),
+    tags: [["d", "scene-stealer"]],
+  };
+  const actions = buildCreatedBadgeActions({ badge, isOwner: false });
+  assert.ok(actions.view);
+  assert.ok(actions.share);
+  assert.equal(actions.edit, null);
+  assert.equal(actions.award, null);
+});
+
+test("buildFollowAwardeesEvent defaults missing content to empty string", () => {
+  const contactListEvent = {
+    kind: 3,
+    pubkey: "user",
+    tags: [],
+  };
+  const event = buildFollowAwardeesEvent({
+    pubkey: "user",
+    contactListEvent,
+    awardeePubkeys: [],
+    createdAt: 500,
+  });
+  assert.equal(event.content, "");
+  assert.deepEqual(event.tags, []);
 });

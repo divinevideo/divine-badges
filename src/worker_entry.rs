@@ -26,6 +26,8 @@ mod wasm_entry {
             (Method::Get, PublicRouteMatch::NewPage) => serve_html_page(NEW_PAGE),
             (Method::Get, PublicRouteMatch::ProfilePage) => serve_html_page(PROFILE_PAGE),
             (Method::Get, PublicRouteMatch::BadgePage) => serve_html_page(BADGE_PAGE),
+            (Method::Get, PublicRouteMatch::BadgeEditPage) => serve_html_page(EDIT_BADGE_PAGE),
+            (Method::Get, PublicRouteMatch::RelaysPage) => serve_html_page(RELAYS_PAGE),
             (Method::Get, PublicRouteMatch::IssuerPubkey) => serve_pubkey(env).await,
             (Method::Get, PublicRouteMatch::AppAsset(asset)) => serve_app_asset(asset),
             (Method::Post, _) if path == "/admin/publish-profile" => {
@@ -84,7 +86,9 @@ mod wasm_entry {
     const ME_PAGE: &str = include_str!("../assets/me.html");
     const PROFILE_PAGE: &str = include_str!("../assets/profile.html");
     const BADGE_PAGE: &str = include_str!("../assets/badge.html");
+    const EDIT_BADGE_PAGE: &str = include_str!("../assets/edit_badge.html");
     const NEW_PAGE: &str = include_str!("../assets/new.html");
+    const RELAYS_PAGE: &str = include_str!("../assets/relays.html");
     const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
     const APP_AUTH_PROFILE_JS: &str = include_str!("../assets/app/auth/profile.js");
     const APP_AUTH_SESSION_JS: &str = include_str!("../assets/app/auth/session.js");
@@ -92,15 +96,21 @@ mod wasm_entry {
     const APP_NOSTR_BADGES_JS: &str = include_str!("../assets/app/nostr/badges.js");
     const APP_NOSTR_CONSTANTS_JS: &str = include_str!("../assets/app/nostr/constants.js");
     const APP_NOSTR_IDENTITY_JS: &str = include_str!("../assets/app/nostr/identity.js");
+    const APP_NOSTR_PROFILE_METADATA_JS: &str =
+        include_str!("../assets/app/nostr/profile_metadata.js");
+    const APP_NOSTR_PUBLISH_JS: &str = include_str!("../assets/app/nostr/publish.js");
     const APP_NOSTR_RELAY_JS: &str = include_str!("../assets/app/nostr/relay.js");
     const APP_VIEWS_BADGE_JS: &str = include_str!("../assets/app/views/badge.js");
     const APP_VIEWS_COMMON_JS: &str = include_str!("../assets/app/views/common.js");
+    const APP_VIEWS_EDIT_BADGE_JS: &str = include_str!("../assets/app/views/edit_badge.js");
+    const APP_VIEWS_MARKDOWN_JS: &str = include_str!("../assets/app/views/markdown.js");
     const APP_VIEWS_ME_JS: &str = include_str!("../assets/app/views/me.js");
     const APP_VIEWS_ME_EMPTY_STATE_JS: &str = include_str!("../assets/app/views/me_empty_state.js");
     const APP_VIEWS_NEW_JS: &str = include_str!("../assets/app/views/new.js");
     const APP_VIEWS_NEW_TEXT_FIELDS_JS: &str =
         include_str!("../assets/app/views/new_text_fields.js");
     const APP_VIEWS_PROFILE_JS: &str = include_str!("../assets/app/views/profile.js");
+    const APP_VIEWS_RELAYS_JS: &str = include_str!("../assets/app/views/relays.js");
 
     fn serve_avatar() -> worker::Result<Response> {
         let mut response = Response::from_bytes(AVATAR_PNG.to_vec())?;
@@ -132,14 +142,19 @@ mod wasm_entry {
             PublicAppAsset::NostrBadgesJs => APP_NOSTR_BADGES_JS,
             PublicAppAsset::NostrConstantsJs => APP_NOSTR_CONSTANTS_JS,
             PublicAppAsset::NostrIdentityJs => APP_NOSTR_IDENTITY_JS,
+            PublicAppAsset::NostrProfileMetadataJs => APP_NOSTR_PROFILE_METADATA_JS,
+            PublicAppAsset::NostrPublishJs => APP_NOSTR_PUBLISH_JS,
             PublicAppAsset::NostrRelayJs => APP_NOSTR_RELAY_JS,
             PublicAppAsset::ViewsBadgeJs => APP_VIEWS_BADGE_JS,
             PublicAppAsset::ViewsCommonJs => APP_VIEWS_COMMON_JS,
+            PublicAppAsset::ViewsEditBadgeJs => APP_VIEWS_EDIT_BADGE_JS,
+            PublicAppAsset::ViewsMarkdownJs => APP_VIEWS_MARKDOWN_JS,
             PublicAppAsset::ViewsMeJs => APP_VIEWS_ME_JS,
             PublicAppAsset::ViewsMeEmptyStateJs => APP_VIEWS_ME_EMPTY_STATE_JS,
             PublicAppAsset::ViewsNewJs => APP_VIEWS_NEW_JS,
             PublicAppAsset::ViewsNewTextFieldsJs => APP_VIEWS_NEW_TEXT_FIELDS_JS,
             PublicAppAsset::ViewsProfileJs => APP_VIEWS_PROFILE_JS,
+            PublicAppAsset::ViewsRelaysJs => APP_VIEWS_RELAYS_JS,
         };
         let mut response = Response::ok(source)?;
         response

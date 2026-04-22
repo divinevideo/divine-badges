@@ -68,6 +68,14 @@ fn classify_public_route_matches_shared_app_assets() {
         classify_public_route("/app/views/new_text_fields.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::ViewsNewTextFieldsJs)
     );
+    assert_eq!(
+        classify_public_route("/app/nostr/publish.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::NostrPublishJs)
+    );
+    assert_eq!(
+        classify_public_route("/app/nostr/profile_metadata.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::NostrProfileMetadataJs)
+    );
     assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
     assert_eq!(
         classify_public_route("/p/npub1example"),
@@ -76,5 +84,37 @@ fn classify_public_route_matches_shared_app_assets() {
     assert_eq!(
         classify_public_route("/b/naddr1example"),
         PublicRouteMatch::BadgePage
+    );
+}
+
+#[test]
+fn classify_public_route_matches_badge_edit_page() {
+    assert_eq!(
+        classify_public_route("/b/naddr1example/edit"),
+        PublicRouteMatch::BadgeEditPage
+    );
+    assert_eq!(
+        classify_public_route("/b/naddr1example"),
+        PublicRouteMatch::BadgePage
+    );
+    assert_eq!(
+        classify_public_route("/app/views/edit_badge.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsEditBadgeJs)
+    );
+    assert_eq!(
+        classify_public_route("/app/views/markdown.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsMarkdownJs)
+    );
+}
+
+#[test]
+fn classify_public_route_matches_relays_page_and_asset() {
+    assert_eq!(
+        classify_public_route("/relays"),
+        PublicRouteMatch::RelaysPage
+    );
+    assert_eq!(
+        classify_public_route("/app/views/relays.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::ViewsRelaysJs)
     );
 }

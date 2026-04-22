@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildNavProfile, buildPublicCreatorSummary } from "./profile.js";
+import {
+  buildNavProfile,
+  buildPublicCreatorSummary,
+  loadCreatorProfile,
+} from "./profile.js";
 
 test("buildNavProfile prefers Divine profile display fields when present", () => {
   const profile = buildNavProfile({
@@ -99,4 +103,131 @@ test("buildPublicCreatorSummary prefers human identity and Divine-facing stats",
       { label: "Pinned", value: "2" },
     ],
   });
+});
+
+test("loadCreatorProfile uses Divine data when the API responds", async () => {
+  const divinePayload = {
+    profile: {
+      display_name: "Divine Name",
+      picture: "https://divine.example/pic.png",
+      nip05: "_@divinehandle.divine.video",
+      about: "divine bio",
+    },
+  };
+  const fetchDivineFn = async () => divinePayload;
+  const loadNostrFn = async () => {
+    throw new Error("nostr should be ignored when Divine has full data");
+  };
+  const profile = await loadCreatorProfile("pubkeyA", {
+    relays: ["wss://r"],
+    fetchDivineFn,
+    loadNostrFn: async () => null,
+  });
+  assert.equal(profile.displayName, "Divine Name");
+  assert.equal(profile.avatarUrl, "https://divine.example/pic.png");
+  assert.equal(profile.handle, "@divinehandle");
+  assert.equal(profile.nip05, "_@divinehandle.divine.video");
+  assert.equal(profile.about, "divine bio");
+});
+
+test("loadCreatorProfile falls back to Nostr kind:0 when Divine API fails", async () => {
+  const fetchDivineFn = async () => null;
+  const loadNostrFn = async () => ({
+    pubkey: "pubkeyB",
+    displayName: "NostrName",
+    avatarUrl: "https://nostr.example/pic.png",
+    nip05: "_@nostrhandle.divine.video",
+    handle: "nostrhandle",
+    about: "nostr bio",
+    raw: {},
+    createdAt: 1,
+  });
+  const profile = await loadCreatorProfile("pubkeyB", {
+    relays: ["wss://r"],
+    fetchDivineFn,
+    loadNostrFn,
+  });
+  assert.equal(profile.displayName, "NostrName");
+  assert.equal(profile.avatarUrl, "https://nostr.example/pic.png");
+  assert.equal(profile.nip05, "_@nostrhandle.divine.video");
+  assert.equal(profile.handle, "@nostrhandle");
+  assert.equal(profile.username, "nostrhandle");
+  assert.equal(profile.about, "nostr bio");
+});
+
+test("loadCreatorProfile returns shortened pubkey fallback when both fail", async () => {
+  const fetchDivineFn = async () => null;
+  const loadNostrFn = async () => null;
+  const profile = await loadCreatorProfile(
+    "d95aa8fc7b53ab5d49579f4ddfb0f10f30dbb282f381c16d4c62ba1b035ae540",
+    {
+      relays: ["wss://r"],
+      fetchDivineFn,
+      loadNostrFn,
+    }
+  );
+  assert.equal(profile.displayName, "d95aa8fc…5ae540");
+  assert.equal(profile.avatarUrl, null);
+  assert.equal(profile.handle, null);
+  assert.equal(profile.nip05, null);
+  assert.equal(profile.about, null);
+});
+
+test("loadCreatorProfile fills missing nip05/handle from Nostr when Divine lacks them", async () => {
+  const fetchDivineFn = async () => ({
+    profile: {
+      display_name: "DivineName",
+      picture: "https://divine.example/pic.png",
+    },
+  });
+  const loadNostrFn = async () => ({
+    pubkey: "pubkeyC",
+    displayName: "NostrName",
+    avatarUrl: "https://nostr.example/other.png",
+    nip05: "_@nostrhandle.divine.video",
+    handle: "nostrhandle",
+    about: "nostr bio",
+    raw: {},
+    createdAt: 1,
+  });
+  const profile = await loadCreatorProfile("pubkeyC", {
+    relays: ["wss://r"],
+    fetchDivineFn,
+    loadNostrFn,
+  });
+  assert.equal(profile.displayName, "DivineName");
+  assert.equal(profile.avatarUrl, "https://divine.example/pic.png");
+  assert.equal(profile.nip05, "_@nostrhandle.divine.video");
+  assert.equal(profile.handle, "@nostrhandle");
+  assert.equal(profile.username, "nostrhandle");
+  assert.equal(profile.about, "nostr bio");
+});
+
+test("loadCreatorProfile keeps Divine populated fields and only fills gaps from Nostr", async () => {
+  const fetchDivineFn = async () => ({
+    profile: {
+      display_name: "DivineName",
+      nip05: "_@divinehandle.divine.video",
+    },
+  });
+  const loadNostrFn = async () => ({
+    pubkey: "pubkeyD",
+    displayName: "NostrName",
+    avatarUrl: "https://nostr.example/pic.png",
+    nip05: "_@nostrhandle.divine.video",
+    handle: "nostrhandle",
+    about: "nostr bio",
+    raw: {},
+    createdAt: 1,
+  });
+  const profile = await loadCreatorProfile("pubkeyD", {
+    relays: ["wss://r"],
+    fetchDivineFn,
+    loadNostrFn,
+  });
+  assert.equal(profile.displayName, "DivineName");
+  assert.equal(profile.nip05, "_@divinehandle.divine.video");
+  assert.equal(profile.handle, "@divinehandle");
+  assert.equal(profile.avatarUrl, "https://nostr.example/pic.png");
+  assert.equal(profile.about, "nostr bio");
 });
