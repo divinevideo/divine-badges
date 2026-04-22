@@ -1,0 +1,204 @@
+# ABOUTME: Uploads Cloudflare Worker preview versions for PRs without production deploys
+# ABOUTME: Comments the stable workers.dev preview URL or missing secret setup on the PR
+
+name: PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Upload Worker preview
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate preview workflow
+        run: node --test tests/preview_workflow.test.js
+
+      - name: Install wasm Rust target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Run native checks
+        run: npm run check
+
+      - name: Run wasm check
+        run: npm run check:wasm
+
+      - name: Install worker-build
+        run: cargo install worker-build --version 0.8.1 --locked
+
+      - name: Check Cloudflare deployment secrets
+        id: secrets
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN || secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+        run: |
+          if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_WORKERS_SUBDOMAIN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment missing preview configuration
+        if: steps.secrets.outputs.configured != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = "<!-- badges-preview-url -->";
+            const sha = context.sha.slice(0, 7);
+            const runUrl =
+              `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}` +
+              `/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const body = `${marker}
+            ## Badges PR Preview
+
+            Last refresh: \`${sha}\` ([preview run](${runUrl}))
+
+            Preview deployment is not configured for this repository yet.
+
+            Missing GitHub Actions secrets:
+            - \`CLOUDFLARE_API_TOKEN\`
+            - \`CLOUDFLARE_ACCOUNT_ID\`
+
+            Missing GitHub Actions repository variable or secret:
+            - \`CLOUDFLARE_WORKERS_SUBDOMAIN\`
+
+            Once those are added, this workflow will upload Worker preview versions with alias \`pr-${context.payload.pull_request.number}\`.`;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.data.find((comment) =>
+              comment.user?.type === "Bot" && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Upload preview Worker version
+        if: steps.secrets.outputs.configured == 'true'
+        id: upload
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions upload --preview-alias pr-${{ github.event.pull_request.number }} --message "PR #${{ github.event.pull_request.number }} preview for ${{ github.sha }}"
+
+      - name: Extract preview URL
+        if: steps.secrets.outputs.configured == 'true'
+        id: preview-url
+        env:
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN || secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+        run: |
+          worker="$(node -e 'const fs = require("fs"); const text = fs.readFileSync("wrangler.toml", "utf8"); const match = text.match(/^name\s*=\s*"([^"]+)"/m); if (!match) process.exit(1); console.log(match[1]);')"
+          alias="pr-${{ github.event.pull_request.number }}"
+          url="https://${alias}-${worker}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev"
+          if [ -z "$worker" ] || [ -z "$CLOUDFLARE_WORKERS_SUBDOMAIN" ]; then
+            echo "Could not derive workers.dev preview URL." >&2
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL
+        if: steps.secrets.outputs.configured == 'true'
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.preview-url.outputs.url }}
+        with:
+          script: |
+            const marker = "<!-- badges-preview-url -->";
+            const sha = context.sha.slice(0, 7);
+            const runUrl =
+              `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}` +
+              `/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const body = `${marker}
+            ## Badges PR Preview
+
+            Last refresh: \`${sha}\` ([preview run](${runUrl}))
+
+            | Property | Value |
+            | --- | --- |
+            | Preview URL | ${process.env.PREVIEW_URL} |
+            | Alias | \`pr-${context.payload.pull_request.number}\` |
+            | Commit | \`${sha}\` |
+
+            This uploads a Worker version preview only. It does not deploy production traffic.`;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.data.find((comment) =>
+              comment.user?.type === "Bot" && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Add preview URL to summary
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          {
+            echo "### Worker preview"
+            echo
+            echo "${{ steps.preview-url.outputs.url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

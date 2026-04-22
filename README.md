@@ -7,7 +7,7 @@ Rust-based Cloudflare Worker for issuing fixed Divine creator awards.
 ## Bootstrap
 
 1. Run `npm install`
-2. Run `cargo install worker-build --version 0.6.6 --locked`
+2. Run `cargo install worker-build --version 0.8.1 --locked`
 3. Run `npm run d1:create`
 4. Copy the returned `database_id` into `wrangler.toml`
 5. Run `npm run d1:migrate:local`
@@ -91,3 +91,24 @@ Deploy for real:
 ```bash
 npm run deploy
 ```
+
+## PR Preview Deploys
+
+Pull requests from branches in this repository upload a Cloudflare Worker preview version after native and wasm checks pass.
+
+Required GitHub repository secrets:
+
+```text
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+```
+
+Required GitHub repository variable, or secret if you prefer not to expose it:
+
+```text
+CLOUDFLARE_WORKERS_SUBDOMAIN
+```
+
+The workflow uses `wrangler versions upload --preview-alias pr-<number>` and comments the resulting `workers.dev` URL on the PR. It does not run `wrangler deploy` and does not change production traffic for `badges.divine.video`.
+
+Preview URLs are public unless protected in Cloudflare Access. Preview Workers use the bindings configured for this Worker, including the configured D1 binding.
