@@ -390,6 +390,63 @@ fn inactive_candidates_mark_run_skipped_without_publishing() {
 }
 
 #[test]
+fn excluded_founder_pubkey_does_not_receive_diviner_awards() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let excluded_pubkey = "d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540";
+        let next_creator_pubkey =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let leaderboard = FakeLeaderboard {
+            creators: vec![
+                fake_creator(excluded_pubkey, "rabble", 900.0),
+                fake_creator(next_creator_pubkey, "next creator", 800.0),
+            ],
+        };
+        let activity = FakeActivity {
+            latest_by_pubkey: HashMap::from([
+                (
+                    excluded_pubkey.into(),
+                    Some(CreatorLatestVideo {
+                        published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+                    }),
+                ),
+                (
+                    next_creator_pubkey.into(),
+                    Some(CreatorLatestVideo {
+                        published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+                    }),
+                ),
+            ]),
+        };
+        let publisher = FakePublisher::default();
+        let discord = FakeDiscord::default();
+
+        let outcome = run_award_tick(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &config(),
+            &repo,
+            &leaderboard,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs.len(), 1);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(
+            outcome.runs[0].winner_pubkey.as_deref(),
+            Some(next_creator_pubkey)
+        );
+        assert_eq!(
+            outcome.runs[0].winner_display_name.as_deref(),
+            Some("next creator")
+        );
+    });
+}
+
+#[test]
 fn winning_run_persists_winner_nip05() {
     block_on(async {
         let repo = FakeRepo::default();

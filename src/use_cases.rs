@@ -1,7 +1,7 @@
 use crate::awards::award_for_period_kind;
 use crate::config::AppConfig;
 use crate::discord::build_announcement_message;
-use crate::eligibility::is_active_creator;
+use crate::eligibility::{is_active_creator, is_diviner_award_excluded_creator};
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord};
 use crate::period::closed_periods_for_tick;
@@ -78,6 +78,10 @@ where
 
         let mut winner = None;
         for creator in ranked {
+            if is_diviner_award_excluded_creator(&creator.pubkey) {
+                continue;
+            }
+
             let latest_video = match activity.latest_video(&creator.pubkey).await {
                 Ok(video) => video,
                 Err(err) => {
