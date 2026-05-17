@@ -20,7 +20,7 @@ concurrency:
 jobs:
   preview:
     name: Upload Worker preview
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-16core
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
