@@ -15,7 +15,7 @@ import {
   readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
-import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
+import { uploadToBlossom } from "/app/media/blossom.js?v=2026-06-13-1";
 import { clearStatus, esc, replaceView, showStatus } from "/app/views/common.js?v=2026-04-14-3";
 import {
   applyUploadError,
@@ -166,15 +166,22 @@ function formMarkup() {
         </div>
 
         <div class="upload-grid">
-          <label class="upload-card">
+          <div class="upload-card">
             <span class="upload-label">Primary image</span>
-            <input id="image-file" type="file" accept="image/*">
+            <input id="image-file" class="file-input" type="file" accept="image/*">
+            <label class="upload-trigger" for="image-file">${
+              state.uploadingImage
+                ? "Uploading…"
+                : state.imageUrl
+                  ? "Replace image"
+                  : "Choose image"
+            }</label>
             <span class="upload-help">${
               state.imageUrl
                 ? `Uploaded to Blossom${state.imageSha256 ? ` · ${esc(state.imageSha256.slice(0, 12))}…` : ""}`
                 : "Used for both image and thumb unless you override the thumbnail."
             }</span>
-          </label>
+          </div>
 
           <div class="upload-card">
             <label class="toggle-row">
@@ -184,14 +191,21 @@ function formMarkup() {
             ${
               state.customThumbEnabled
                 ? `
-                  <label class="thumb-upload">
-                    <input id="thumb-file" type="file" accept="image/*">
+                  <div class="thumb-upload">
+                    <input id="thumb-file" class="file-input" type="file" accept="image/*">
+                    <label class="upload-trigger" for="thumb-file">${
+                      state.uploadingThumb
+                        ? "Uploading…"
+                        : state.thumbUrl
+                          ? "Replace thumbnail"
+                          : "Choose thumbnail"
+                    }</label>
                     <span class="upload-help">${
                       state.thumbUrl
                         ? `Custom thumb uploaded${state.thumbSha256 ? ` · ${esc(state.thumbSha256.slice(0, 12))}…` : ""}`
                         : "Upload a separate cropped image for list and card views."
                     }</span>
-                  </label>
+                  </div>
                 `
                 : '<span class="upload-help">Primary image will be reused automatically.</span>'
             }

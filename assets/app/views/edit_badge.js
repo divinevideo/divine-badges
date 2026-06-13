@@ -24,7 +24,7 @@ import {
   readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
-import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
+import { uploadToBlossom } from "/app/media/blossom.js?v=2026-06-13-1";
 import {
   clearStatus,
   esc,
@@ -203,7 +203,10 @@ function formMarkup() {
           </label>
           <div class="upload-card">
             <span class="upload-label">Replace primary image</span>
-            <input id="image-file" type="file" accept="image/*">
+            <input id="image-file" class="file-input" type="file" accept="image/*">
+            <label class="upload-trigger" for="image-file">${
+              state.uploadingImage ? "Uploading…" : "Choose image"
+            }</label>
             <span class="upload-help">${
               state.uploadingImage
                 ? "Uploading primary image to Blossom…"
@@ -218,7 +221,10 @@ function formMarkup() {
           </label>
           <div class="upload-card">
             <span class="upload-label">Replace thumbnail</span>
-            <input id="thumb-file" type="file" accept="image/*">
+            <input id="thumb-file" class="file-input" type="file" accept="image/*">
+            <label class="upload-trigger" for="thumb-file">${
+              state.uploadingThumb ? "Uploading…" : "Choose thumbnail"
+            }</label>
             <span class="upload-help">${
               state.uploadingThumb
                 ? "Uploading thumbnail to Blossom…"
