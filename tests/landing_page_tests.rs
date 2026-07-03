@@ -82,6 +82,10 @@ fn classify_public_route_matches_shared_app_assets() {
     );
     assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
     assert_eq!(
+        classify_public_route("/auth/callback"),
+        PublicRouteMatch::AuthCallbackPage
+    );
+    assert_eq!(
         classify_public_route("/p/npub1example"),
         PublicRouteMatch::ProfilePage
     );
