@@ -91,6 +91,7 @@ mod wasm_entry {
     const RELAYS_PAGE: &str = include_str!("../assets/relays.html");
     const APP_BOOT_JS: &str = include_str!("../assets/app/boot.js");
     const APP_AUTH_PROFILE_JS: &str = include_str!("../assets/app/auth/profile.js");
+    const APP_AUTH_RETURN_TO_JS: &str = include_str!("../assets/app/auth/return_to.js");
     const APP_AUTH_SESSION_JS: &str = include_str!("../assets/app/auth/session.js");
     const APP_MEDIA_BLOSSOM_JS: &str = include_str!("../assets/app/media/blossom.js");
     const APP_NOSTR_BADGES_JS: &str = include_str!("../assets/app/nostr/badges.js");
@@ -137,6 +138,7 @@ mod wasm_entry {
         let source = match asset {
             PublicAppAsset::BootJs => APP_BOOT_JS,
             PublicAppAsset::AuthProfileJs => APP_AUTH_PROFILE_JS,
+            PublicAppAsset::AuthReturnToJs => APP_AUTH_RETURN_TO_JS,
             PublicAppAsset::AuthSessionJs => APP_AUTH_SESSION_JS,
             PublicAppAsset::MediaBlossomJs => APP_MEDIA_BLOSSOM_JS,
             PublicAppAsset::NostrBadgesJs => APP_NOSTR_BADGES_JS,

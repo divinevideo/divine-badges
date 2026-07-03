@@ -2,6 +2,7 @@
 pub enum PublicAppAsset {
     BootJs,
     AuthProfileJs,
+    AuthReturnToJs,
     AuthSessionJs,
     MediaBlossomJs,
     NostrBadgesJs,
@@ -58,6 +59,7 @@ pub fn classify_public_route(path: &str) -> PublicRouteMatch {
         "/pubkey" => PublicRouteMatch::IssuerPubkey,
         "/app/boot.js" => PublicRouteMatch::AppAsset(PublicAppAsset::BootJs),
         "/app/auth/profile.js" => PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs),
+        "/app/auth/return_to.js" => PublicRouteMatch::AppAsset(PublicAppAsset::AuthReturnToJs),
         "/app/auth/session.js" => PublicRouteMatch::AppAsset(PublicAppAsset::AuthSessionJs),
         "/app/media/blossom.js" => PublicRouteMatch::AppAsset(PublicAppAsset::MediaBlossomJs),
         "/app/nostr/badges.js" => PublicRouteMatch::AppAsset(PublicAppAsset::NostrBadgesJs),
