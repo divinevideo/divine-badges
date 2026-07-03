@@ -9,6 +9,8 @@ import {
   restoreSession,
 } from "https://esm.sh/divine-signer@0.4.2";
 
+import { saveReturnTo, consumeReturnTo } from "./return_to.js";
+
 const SESSION_KEY = "dbdg_session";
 const LOGGED_OUT_KEY = "dbdg_logged_out";
 
@@ -28,11 +30,13 @@ const oauthStorage = {
   clearAuthorizationHandle: () => localStorage.removeItem("dbdg_auth_handle"),
 };
 
+// Fixed callback path so keycast can allowlist this client (issue #10):
+// the redirect_uri must not vary with the page the user started login from.
 const oauthConfig = {
   clientId: "divine-badges",
   redirectUri: /\.divine\.video$/.test(window.location.hostname)
-    ? `https://badges.divine.video${window.location.pathname}`
-    : `${window.location.origin}${window.location.pathname}`,
+    ? "https://badges.divine.video/auth/callback"
+    : `${window.location.origin}/auth/callback`,
   storage: oauthStorage,
 };
 
@@ -78,7 +82,25 @@ function attachRefreshPersistence(signer) {
 }
 
 export async function beginDivineOAuth() {
+  saveReturnTo(`${window.location.pathname}${window.location.search}`);
   return buildOAuthUrl(oauthConfig);
+}
+
+export async function completeOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+  const state = params.get("state");
+  if (!code || !state) {
+    return consumeReturnTo();
+  }
+  const { signer, accessToken, refreshToken } = await exchangeCode(
+    code,
+    state,
+    oauthConfig
+  );
+  sessions.save({ type: "oauth", accessToken, refreshToken });
+  attachRefreshPersistence(signer);
+  return consumeReturnTo();
 }
 
 export async function loginWithExtension() {
