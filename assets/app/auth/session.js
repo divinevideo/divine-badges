@@ -88,6 +88,10 @@ export async function beginDivineOAuth() {
 
 export async function completeOAuthCallback() {
   const params = new URLSearchParams(window.location.search);
+  const error = params.get("error");
+  if (error) {
+    throw new Error(params.get("error_description") || error);
+  }
   const code = params.get("code");
   const state = params.get("state");
   if (!code || !state) {
@@ -136,21 +140,6 @@ export function clearStoredSession() {
 }
 
 export async function bootstrapSession() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get("code");
-  const state = params.get("state");
-  if (code && state) {
-    const { signer, accessToken, refreshToken } = await exchangeCode(
-      code,
-      state,
-      oauthConfig
-    );
-    sessions.save({ type: "oauth", accessToken, refreshToken });
-    window.history.replaceState({}, "", window.location.pathname);
-    attachRefreshPersistence(signer);
-    return signer;
-  }
-
   const stored = sessions.load();
   if (stored) {
     try {
