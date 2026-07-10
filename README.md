@@ -112,3 +112,7 @@ CLOUDFLARE_WORKERS_SUBDOMAIN
 The workflow uses `wrangler versions upload --preview-alias pr-<number>` and comments the resulting `workers.dev` URL on the PR. It does not run `wrangler deploy` and does not change production traffic for `badges.divine.video`.
 
 Preview URLs are public unless protected in Cloudflare Access. Preview Workers use the bindings configured for this Worker, including the configured D1 binding.
+
+---
+
+Part of [Divine](https://divine.video) — your playground for human creativity · [Brand guidelines](https://github.com/divinevideo/brand-guidelines)
