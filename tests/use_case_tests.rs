@@ -209,9 +209,14 @@ impl LeaderboardClient for FakeLeaderboard {
     async fn ranked_creators(
         &self,
         _period: &str,
-        _candidate_window: usize,
+        candidate_window: usize,
     ) -> Result<Vec<LeaderboardCreator>, AppError> {
-        Ok(self.creators.clone())
+        Ok(self
+            .creators
+            .iter()
+            .take(candidate_window)
+            .cloned()
+            .collect())
     }
 }
 
@@ -442,6 +447,71 @@ fn excluded_founder_pubkey_does_not_receive_diviner_awards() {
         assert_eq!(
             outcome.runs[0].winner_display_name.as_deref(),
             Some("next creator")
+        );
+    });
+}
+
+#[test]
+fn excluded_founder_pubkey_does_not_shrink_candidate_window() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let excluded_pubkey = "d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540";
+        let active_pubkey = "activepubkey";
+        let mut creators = vec![fake_creator(excluded_pubkey, "rabble", 1000.0)];
+        let mut latest_by_pubkey = HashMap::new();
+
+        latest_by_pubkey.insert(
+            excluded_pubkey.into(),
+            Some(CreatorLatestVideo {
+                published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+            }),
+        );
+
+        for index in 1..10 {
+            let pubkey = format!("inactivepubkey{index}");
+            creators.push(fake_creator(
+                &pubkey,
+                &format!("inactive creator {index}"),
+                1000.0 - index as f64,
+            ));
+            latest_by_pubkey.insert(
+                pubkey,
+                Some(CreatorLatestVideo {
+                    published_at: Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap(),
+                }),
+            );
+        }
+
+        creators.push(fake_creator(active_pubkey, "active creator", 900.0));
+        latest_by_pubkey.insert(
+            active_pubkey.into(),
+            Some(CreatorLatestVideo {
+                published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+            }),
+        );
+
+        let leaderboard = FakeLeaderboard { creators };
+        let activity = FakeActivity { latest_by_pubkey };
+        let publisher = FakePublisher::default();
+        let discord = FakeDiscord::default();
+
+        let outcome = run_award_tick(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &config(),
+            &repo,
+            &leaderboard,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs.len(), 1);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(
+            outcome.runs[0].winner_pubkey.as_deref(),
+            Some(active_pubkey)
         );
     });
 }
