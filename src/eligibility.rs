@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::models::{CreatorLatestVideo, LeaderboardCreator};
 
-// Rabble's founder account; Diviner awards should go to community creators after launch.
+// Launch-era founder account; Diviner awards should go to community creators after launch.
 pub const DIVINER_AWARD_EXCLUDED_PUBKEYS: [&str; 1] =
     ["d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540"];
 
@@ -26,10 +26,6 @@ where
     F: FnMut(&str) -> Option<CreatorLatestVideo>,
 {
     ranked.into_iter().find(|creator| {
-        if is_diviner_award_excluded_creator(&creator.pubkey) {
-            return false;
-        }
-
         load_latest_video(&creator.pubkey)
             .map(|video| is_active_creator(now, &video))
             .unwrap_or(false)
