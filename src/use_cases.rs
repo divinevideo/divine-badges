@@ -82,11 +82,11 @@ where
         };
 
         let mut winner = None;
-        for creator in ranked {
-            if is_diviner_award_excluded_creator(&creator.pubkey) {
-                continue;
-            }
-
+        for creator in ranked
+            .into_iter()
+            .filter(|creator| !is_diviner_award_excluded_creator(&creator.pubkey))
+            .take(CANDIDATE_WINDOW)
+        {
             let latest_video = match activity.latest_video(&creator.pubkey).await {
                 Ok(video) => video,
                 Err(err) => {

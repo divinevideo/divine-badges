@@ -517,6 +517,62 @@ fn excluded_founder_pubkey_does_not_shrink_candidate_window() {
 }
 
 #[test]
+fn candidate_window_stays_capped_when_excluded_pubkey_is_absent() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let active_pubkey = "activepubkey";
+        let mut creators = Vec::new();
+        let mut latest_by_pubkey = HashMap::new();
+
+        for index in 0..10 {
+            let pubkey = format!("inactivepubkey{index}");
+            creators.push(fake_creator(
+                &pubkey,
+                &format!("inactive creator {index}"),
+                1000.0 - index as f64,
+            ));
+            latest_by_pubkey.insert(
+                pubkey,
+                Some(CreatorLatestVideo {
+                    published_at: Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap(),
+                }),
+            );
+        }
+
+        creators.push(fake_creator(active_pubkey, "active creator", 900.0));
+        latest_by_pubkey.insert(
+            active_pubkey.into(),
+            Some(CreatorLatestVideo {
+                published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+            }),
+        );
+
+        let leaderboard = FakeLeaderboard { creators };
+        let activity = FakeActivity { latest_by_pubkey };
+        let publisher = FakePublisher::default();
+        let discord = FakeDiscord::default();
+
+        let outcome = run_award_tick(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &config(),
+            &repo,
+            &leaderboard,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs.len(), 1);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
+        assert_eq!(outcome.runs[0].winner_pubkey, None);
+        assert_eq!(*publisher.publish_count.borrow(), 0);
+        assert_eq!(*discord.send_count.borrow(), 0);
+    });
+}
+
+#[test]
 fn winning_run_persists_winner_nip05() {
     block_on(async {
         let repo = FakeRepo::default();
