@@ -28,7 +28,7 @@ import {
   loginWithExtension,
   loginWithNsec,
   markSessionActive,
-} from "/app/auth/session.js?v=2026-04-14-3";
+} from "/app/auth/session.js?v=2026-07-03-1";
 import { buildNavProfile, loadDivineProfile } from "/app/auth/profile.js?v=2026-04-14-3";
 import {
   buildAcceptedBadgeRecords,

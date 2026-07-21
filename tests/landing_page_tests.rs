@@ -57,6 +57,10 @@ fn classify_public_route_matches_shared_app_assets() {
         PublicRouteMatch::AppAsset(PublicAppAsset::AuthProfileJs)
     );
     assert_eq!(
+        classify_public_route("/app/auth/return_to.js"),
+        PublicRouteMatch::AppAsset(PublicAppAsset::AuthReturnToJs)
+    );
+    assert_eq!(
         classify_public_route("/app/media/blossom.js"),
         PublicRouteMatch::AppAsset(PublicAppAsset::MediaBlossomJs)
     );
@@ -77,6 +81,10 @@ fn classify_public_route_matches_shared_app_assets() {
         PublicRouteMatch::AppAsset(PublicAppAsset::NostrProfileMetadataJs)
     );
     assert_eq!(classify_public_route("/new"), PublicRouteMatch::NewPage);
+    assert_eq!(
+        classify_public_route("/auth/callback"),
+        PublicRouteMatch::AuthCallbackPage
+    );
     assert_eq!(
         classify_public_route("/p/npub1example"),
         PublicRouteMatch::ProfilePage
