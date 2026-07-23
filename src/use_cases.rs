@@ -1,7 +1,9 @@
 use crate::awards::award_for_period_kind;
 use crate::config::AppConfig;
 use crate::discord::build_announcement_message;
-use crate::eligibility::is_active_creator;
+use crate::eligibility::{
+    is_active_creator, is_diviner_award_excluded_creator, DIVINER_AWARD_EXCLUDED_PUBKEYS,
+};
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord};
 use crate::period::closed_periods_for_tick;
@@ -62,7 +64,10 @@ where
         }
 
         let ranked = match leaderboard
-            .ranked_creators(period.kind, CANDIDATE_WINDOW)
+            .ranked_creators(
+                period.kind,
+                CANDIDATE_WINDOW + DIVINER_AWARD_EXCLUDED_PUBKEYS.len(),
+            )
             .await
         {
             Ok(creators) => creators,
@@ -77,7 +82,11 @@ where
         };
 
         let mut winner = None;
-        for creator in ranked {
+        for creator in ranked
+            .into_iter()
+            .filter(|creator| !is_diviner_award_excluded_creator(&creator.pubkey))
+            .take(CANDIDATE_WINDOW)
+        {
             let latest_video = match activity.latest_video(&creator.pubkey).await {
                 Ok(video) => video,
                 Err(err) => {

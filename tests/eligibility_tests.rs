@@ -1,5 +1,7 @@
 use chrono::{TimeZone, Utc};
-use divine_badges::eligibility::{is_active_creator, select_first_active_creator};
+use divine_badges::eligibility::{
+    is_active_creator, is_diviner_award_excluded_creator, select_first_active_creator,
+};
 use divine_badges::models::{CreatorLatestVideo, LeaderboardCreator};
 
 #[test]
@@ -20,6 +22,16 @@ fn creator_is_inactive_when_latest_published_video_is_older_than_30_days() {
     };
 
     assert!(!is_active_creator(now, &latest_video));
+}
+
+#[test]
+fn diviner_award_exclusion_matches_founder_pubkey_defensively() {
+    assert!(is_diviner_award_excluded_creator(
+        " D95AA8FC0EFF8E488952495B8064991D27FB96ED8652F12CDEDC5A4E8B5AE540 "
+    ));
+    assert!(!is_diviner_award_excluded_creator(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ));
 }
 
 #[test]
