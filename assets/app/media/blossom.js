@@ -39,27 +39,12 @@ export async function sha256Hex(file) {
     .join("");
 }
 
-export async function resolveBlossomUploadEndpoint({ endpoint, file, sha256 }) {
-  const controlUrl = new URL("/upload", endpoint);
-  let response;
-  try {
-    response = await fetch(controlUrl, {
-      method: "HEAD",
-    });
-  } catch {
-    return controlUrl.toString();
-  }
-
-  if (!response.ok) {
-    return controlUrl.toString();
-  }
-
-  const dataHost = response.headers.get("x-divine-upload-data-host");
-  if (!dataHost) {
-    return controlUrl.toString();
-  }
-
-  return new URL("/upload", `https://${dataHost}`).toString();
+// Always PUT to the Blossom control host. Only the control host writes the blob
+// metadata that `GET /<sha256>` requires; uploading straight to the advertised
+// data host stores the bytes but leaves the blob unreadable (404 "Blob not
+// found"). The data host is for the resumable session flow, not for BUD-02.
+export function blossomUploadUrl(endpoint) {
+  return new URL("/upload", endpoint).toString();
 }
 
 export async function uploadToBlossom({
@@ -77,11 +62,7 @@ export async function uploadToBlossom({
   }
 
   const sha256 = await sha256Hex(file);
-  const uploadUrl = await resolveBlossomUploadEndpoint({
-    endpoint,
-    file,
-    sha256,
-  });
+  const uploadUrl = blossomUploadUrl(endpoint);
   const createdAt = Math.floor(Date.now() / 1000);
   const expiresAt = createdAt + expiresInSeconds;
   const host = new URL(endpoint).host;
