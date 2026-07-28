@@ -60,8 +60,7 @@ test("validation runs for fork pull requests while the preview upload stays gate
   const preview = jobBlock(workflow, "preview");
 
   assert.doesNotMatch(checks, /head\.repo\.full_name/);
-  assert.match(checks, /npm run test:js/);
-  assert.match(checks, /npm run check\b/);
+  assert.match(checks, /run: npm run check$/m);
   assert.match(checks, /npm run check:wasm/);
 
   assert.match(

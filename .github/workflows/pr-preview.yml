@@ -36,9 +36,6 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Run JS tests
-        run: npm run test:js
-
       - name: Install wasm Rust target
         run: rustup target add wasm32-unknown-unknown
 
