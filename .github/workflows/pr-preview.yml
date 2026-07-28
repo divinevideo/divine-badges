@@ -35,8 +35,8 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Validate preview workflow
-        run: node --test tests/preview_workflow.test.js
+      - name: Run JS tests
+        run: node --test "tests/**/*.test.js" "assets/**/*.test.js"
 
       - name: Install wasm Rust target
         run: rustup target add wasm32-unknown-unknown
