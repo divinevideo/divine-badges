@@ -4,6 +4,19 @@ import test from "node:test";
 
 const workflowPath = ".github/workflows/pr-preview.yml";
 
+// Returns the body of a top-level job so assertions can distinguish which job
+// carries the same-repo gate.
+function jobBlock(workflow, jobName) {
+  const lines = workflow.split("\n");
+  const start = lines.indexOf(`  ${jobName}:`);
+  assert.notEqual(start, -1, `job "${jobName}" is missing from ${workflowPath}`);
+
+  const body = lines.slice(start + 1);
+  const end = body.findIndex((line) => /^ {2}\S/.test(line));
+
+  return (end === -1 ? body : body.slice(0, end)).join("\n");
+}
+
 test("wrangler enables Cloudflare Worker preview URLs", () => {
   const wranglerConfig = readFileSync("wrangler.toml", "utf8");
 
@@ -39,4 +52,35 @@ test("PR preview workflow uploads aliased Worker versions without production dep
   assert.match(workflow, /badges-preview-url/);
   assert.doesNotMatch(workflow, /npm run deploy/);
   assert.doesNotMatch(workflow, /command:\s*deploy\b/);
+});
+
+test("validation runs for fork pull requests while the preview upload stays gated", () => {
+  const workflow = readFileSync(workflowPath, "utf8");
+  const checks = jobBlock(workflow, "checks");
+  const preview = jobBlock(workflow, "preview");
+
+  assert.doesNotMatch(checks, /head\.repo\.full_name/);
+  assert.match(checks, /run: npm run check$/m);
+  assert.match(checks, /npm run check:wasm/);
+
+  assert.match(
+    preview,
+    /if:\s*github\.event\.pull_request\.head\.repo\.full_name == github\.repository/
+  );
+  assert.match(preview, /needs:\s*checks/);
+});
+
+test("the JS test command covers the asset tests and gates npm run check", () => {
+  const { scripts } = JSON.parse(readFileSync("package.json", "utf8"));
+
+  assert.match(scripts["test:js"], /node --test/);
+  assert.ok(
+    scripts["test:js"].includes('"tests/**/*.test.js"'),
+    "test:js must cover tests/"
+  );
+  assert.ok(
+    scripts["test:js"].includes('"assets/**/*.test.js"'),
+    "test:js must cover assets/"
+  );
+  assert.match(scripts.check, /npm run test:js/);
 });

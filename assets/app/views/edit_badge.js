@@ -24,7 +24,7 @@ import {
   readLocalRelays,
   summarizePublishResult,
 } from "/app/nostr/publish.js?v=2026-04-20-1";
-import { uploadToBlossom } from "/app/media/blossom.js?v=2026-04-16-1";
+import { uploadToBlossom } from "/app/media/blossom.js?v=2026-07-28-1";
 import {
   clearStatus,
   esc,

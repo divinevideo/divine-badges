@@ -2,8 +2,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "cargo fmt --check && cargo test --lib --tests",
+    "check": "npm run test:js && cargo fmt --check && cargo test --lib --tests",
     "check:wasm": "cargo check --target wasm32-unknown-unknown",
+    "test:js": "node --test \"tests/**/*.test.js\" \"assets/**/*.test.js\"",
     "d1:create": "wrangler d1 create divine-badges",
     "d1:migrate:local": "wrangler d1 migrations apply divine-badges --local",
     "d1:migrate:remote": "wrangler d1 migrations apply divine-badges --remote",

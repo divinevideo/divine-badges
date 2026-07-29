@@ -31,8 +31,9 @@ If a Divine Brain search or ask tool is available, you may use it for company me
 - Deployment and runtime config live in `wrangler.toml`, `Cargo.toml`, and `package.json`.
 
 ## Build, Test, and Validation Commands
-- `npm run check`: native formatting and test pass.
+- `npm run check`: JS tests, native formatting, and native test pass.
 - `npm run check:wasm`: wasm target validation.
+- `npm run test:js`: JS tests under `tests/` and `assets/` only.
 - `npm run d1:migrate:local`: apply local D1 migrations.
 - `npm run d1:migrate:remote`: apply remote D1 migrations.
 - `npm run dev`: run the Worker locally.

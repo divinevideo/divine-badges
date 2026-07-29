@@ -1,5 +1,5 @@
-# ABOUTME: Uploads Cloudflare Worker preview versions for PRs without production deploys
-# ABOUTME: Comments the stable workers.dev preview URL or missing secret setup on the PR
+# ABOUTME: Runs JS, native, and wasm validation for every PR including forks
+# ABOUTME: Uploads Cloudflare Worker preview versions for same-repo PRs without production deploys
 
 name: PR Preview
 
@@ -18,9 +18,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  checks:
+    name: Tests and checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install wasm Rust target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Run native checks
+        run: npm run check
+
+      - name: Run wasm check
+        run: npm run check:wasm
+
   preview:
     name: Upload Worker preview
     runs-on: ubuntu-latest
+    needs: checks
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
@@ -35,17 +63,8 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Validate preview workflow
-        run: node --test tests/preview_workflow.test.js
-
       - name: Install wasm Rust target
         run: rustup target add wasm32-unknown-unknown
-
-      - name: Run native checks
-        run: npm run check
-
-      - name: Run wasm check
-        run: npm run check:wasm
 
       - name: Install worker-build
         run: cargo install worker-build --version 0.8.1 --locked

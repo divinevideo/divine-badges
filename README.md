@@ -55,7 +55,7 @@ npm run dev
 Before deploying, run the native and wasm checks:
 
 ```bash
-npm run check       # cargo fmt --check && cargo test --lib --tests
+npm run check       # npm run test:js && cargo fmt --check && cargo test --lib --tests
 npm run check:wasm  # cargo check --target wasm32-unknown-unknown
 ```
 
