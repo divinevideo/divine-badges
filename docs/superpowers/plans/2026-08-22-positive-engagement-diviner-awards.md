@@ -53,22 +53,17 @@ assert!(!sql.contains("RENAME TABLE"));
 
 Also assert that the first materialized-view declaration appears before the backfill `INSERT INTO nostr.diviner_daily_engagement` statement.
 
-- [ ] **Step 2: Add a failing hot-query guard test**
-
-Add `diviner_ranking_query_is_date_bounded_before_joins` to `tests/integration_clickhouse_perf.rs`. It will call the SQL builder introduced in Task 3 and assert the daily stats and engagement CTEs both contain `stat_date >= ?` and `stat_date < ?`, and that no unbounded raw `events_local` or `relay_events_by_kind_time` scan appears in the request-time SQL.
-
-- [ ] **Step 3: Run the focused tests and confirm the intended failures**
+- [ ] **Step 2: Run the focused test and confirm the intended failure**
 
 Run:
 
 ```bash
 cargo test --test integration_clickhouse migration_000248_diviner_engagement_is_additive_and_bounded -- --nocapture
-cargo test --test integration_clickhouse_perf diviner_ranking_query_is_date_bounded_before_joins -- --nocapture
 ```
 
-Expected: the first test fails because migration `000248` does not exist; the second fails because the query module does not exist.
+Expected: the test fails because migration `000248` does not exist.
 
-- [ ] **Step 4: Create the daily aggregate table**
+- [ ] **Step 3: Create the daily aggregate table**
 
 Create `database/migrations/000248_diviner_daily_positive_engagement.up.sql` with an additive table keyed by date and stable video coordinate:
 
@@ -90,7 +85,7 @@ ORDER BY (stat_date, target_pubkey, target_kind, target_d_tag);
 
 Do not add a partition key: the table is small, daily, and queried over at most one month.
 
-- [ ] **Step 5: Add live materialized views for event-ID references**
+- [ ] **Step 4: Add live materialized views for event-ID references**
 
 Create one materialized view from `nostr.events_local` for events whose root target is an `e` or `E` tag. Resolve the referenced event through `nostr.videos_by_id_data`, then emit a stable coordinate `(video_kind, video_pubkey, video_d_tag)`. Restrict source kinds to `7`, `1111`, `6`, and `16`. Build each state with `uniqState(actor_pubkey)` under these exact predicates:
 
@@ -103,11 +98,11 @@ kind IN (6, 16)
 
 The `positive_engagers` state uses the union of those predicates. Group by UTC date, video kind, author pubkey, and d-tag. Require nonempty, 64-character hexadecimal actor and target pubkeys.
 
-- [ ] **Step 6: Add live materialized views for address references**
+- [ ] **Step 5: Add live materialized views for address references**
 
 Create a second materialized view for `a` or `A` tags. Parse exactly `kind:pubkey:d-tag`, admit video kinds already recognized by Funnelcake, and emit the same stable coordinate columns and state predicates as the event-ID view. This makes an event-ID reaction and an address reaction to different revisions of one addressable video merge into one creator-level actor set.
 
-- [ ] **Step 7: Backfill the last 32 UTC days after both views are attached**
+- [ ] **Step 6: Backfill the last 32 UTC days after both views are attached**
 
 Add bounded `INSERT INTO nostr.diviner_daily_engagement SELECT` statements sourced from `nostr.relay_events_by_kind_time`, with:
 
@@ -119,11 +114,11 @@ WHERE kind IN (7, 1111, 6, 16)
 
 Use the same target resolution, reaction normalization, state predicates, and grouping as the live views. Rely on mergeable `uniq` states to deduplicate the bounded backfill/live overlap. Keep the date and kind predicates inside each source subquery, following `query-join-filter-before`.
 
-- [ ] **Step 8: Add a reversible down migration**
+- [ ] **Step 7: Add a reversible down migration**
 
 Create `database/migrations/000248_diviner_daily_positive_engagement.down.sql` that drops the two materialized views before dropping `nostr.diviner_daily_engagement`. Name each object once in the up migration and reuse those exact names in the down migration.
 
-- [ ] **Step 9: Validate migration syntax and contracts**
+- [ ] **Step 8: Validate migration syntax and contracts**
 
 Run:
 
@@ -135,10 +130,10 @@ rg -n '^SET |ON CLUSTER|RENAME TABLE' database/migrations/000248_diviner_daily_p
 
 Expected: tests pass; `rg` returns no matches.
 
-- [ ] **Step 10: Commit the read model**
+- [ ] **Step 9: Commit the read model**
 
 ```bash
-git add database/migrations/000248_diviner_daily_positive_engagement.up.sql database/migrations/000248_diviner_daily_positive_engagement.down.sql tests/integration_clickhouse.rs tests/integration_clickhouse_perf.rs
+git add database/migrations/000248_diviner_daily_positive_engagement.up.sql database/migrations/000248_diviner_daily_positive_engagement.down.sql tests/integration_clickhouse.rs
 git commit -m "feat: aggregate daily Diviner engagement"
 ```
 
@@ -231,6 +226,8 @@ Test `build_diviner_candidates_sql()` for these concrete clauses:
 - score weights are exactly `0.30`, `0.30`, `0.20`, `0.15`, and `0.05`
 - final order is effective tier, score, engagement rate, distinct engagers, unique viewers, then pubkey
 - only the outermost query contains `LIMIT ?`
+
+Also add `diviner_ranking_query_is_date_bounded_before_joins` to `tests/integration_clickhouse_perf.rs`. It must call the SQL builder, assert the daily stats and engagement CTEs both contain `stat_date >= ?` and `stat_date < ?`, and reject any request-time scan of `events_local` or `relay_events_by_kind_time`.
 
 - [ ] **Step 2: Run and confirm the focused test fails**
 
