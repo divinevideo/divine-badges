@@ -11,7 +11,7 @@ routes = [
 command = "worker-build --release"
 
 [triggers]
-crons = ["5 0 * * *"]
+crons = ["35 * * * *"]
 
 [vars]
 DIVINE_API_BASE_URL = "https://api.divine.video"

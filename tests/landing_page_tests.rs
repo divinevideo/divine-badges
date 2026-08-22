@@ -1,6 +1,7 @@
 use divine_badges::landing_page::{
     render_page, route_path, AwardHistoryEntry, AwardHistorySection, LandingPageView, PublicRoute,
 };
+use divine_badges::profile::DIVINE_BADGES_PROFILE;
 use divine_badges::public_routes::{classify_public_route, PublicAppAsset, PublicRouteMatch};
 
 #[test]
@@ -14,7 +15,6 @@ fn render_page_groups_recent_history_by_award() {
                     period_key: "2026-04-12".into(),
                     winner_name: "rabble".into(),
                     winner_picture: Some("https://cdn.divine.video/rabble.png".into()),
-                    loops: Some(321.0),
                     profile_url: "https://rabble.divine.video".into(),
                 }],
             },
@@ -37,6 +37,59 @@ fn render_page_groups_recent_history_by_award() {
     assert!(html.contains("rabble"));
     assert!(html.contains("Nothing here yet. Go make some noise."));
     assert!(html.contains("https://rabble.divine.video"));
+}
+
+#[test]
+fn public_copy_explains_engagement_first_awards_and_exact_utc_periods() {
+    let html = render_page(&LandingPageView { sections: vec![] });
+    let profile_copy = DIVINE_BADGES_PROFILE.about.to_lowercase();
+    let public_copy = format!("{html}\n{profile_copy}").to_lowercase();
+
+    for signal in ["positive reactions", "comments", "reposts"] {
+        assert!(
+            public_copy.contains(signal),
+            "public copy should name {signal}"
+        );
+        assert!(
+            profile_copy.contains(signal),
+            "issuer profile should name {signal}"
+        );
+    }
+    assert!(profile_copy.contains("exact closed utc periods"));
+
+    assert!(public_copy.contains("positive engagement ranks first"));
+    assert!(public_copy.contains("unique reach is a small support signal"));
+    assert!(public_copy.contains("repeated actions by the same person do not multiply influence"));
+    assert!(public_copy.contains("negative reactions do not score"));
+    assert!(public_copy.contains(
+        "reach only guarantees a winner when nobody gets qualifying positive engagement"
+    ));
+
+    assert!(public_copy.contains("previous closed utc day"));
+    assert!(public_copy.contains("previous closed monday-through-sunday utc week"));
+    assert!(public_copy.contains("previous closed calendar utc month"));
+
+    for loop_only_claim in ["just loops", "most loops", "won with"] {
+        assert!(
+            !public_copy.contains(loop_only_claim),
+            "public copy still contains loop-only claim: {loop_only_claim}"
+        );
+    }
+    assert!(
+        !html.contains("<span class=\"unit\">loops</span>"),
+        "award cards must not imply that loop count selected the winner"
+    );
+}
+
+#[test]
+fn cron_retries_incomplete_closed_periods_hourly_after_the_first_attempt() {
+    let wrangler = include_str!("../wrangler.toml");
+    let readme = include_str!("../README.md");
+
+    assert!(wrangler.contains("crons = [\"35 * * * *\"]"));
+    assert!(readme.contains("00:35Z is the first attempt"));
+    assert!(readme.contains("later hourly invocations are idempotent retries"));
+    assert!(readme.contains("incomplete closed-period runs"));
 }
 
 #[test]

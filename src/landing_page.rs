@@ -17,7 +17,6 @@ pub struct AwardHistoryEntry {
     pub period_key: String,
     pub winner_name: String,
     pub winner_picture: Option<String>,
-    pub loops: Option<f64>,
     pub profile_url: String,
 }
 
@@ -65,7 +64,6 @@ pub async fn build_view<R: AwardRepository>(
                     winner_picture: run
                         .winner_picture
                         .and_then(|picture| (!picture.trim().is_empty()).then_some(picture)),
-                    loops: run.loops,
                     profile_url: creator_link_for_base(
                         creator_base_url,
                         run.winner_nip05.as_deref(),
@@ -94,7 +92,7 @@ pub fn render_page(view: &LandingPageView) -> String {
         .join("");
 
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diviner Awards · Divine</title><meta name="description" content="Badges for the loudest humans on Divine. No algorithm picks. No vibes check. Just loops."><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap"><style>{css}</style></head><body><div class="splat splat--green"></div><div class="splat splat--pink"></div><div class="splat splat--yellow"></div><main class="shell"><nav class="topbar"><a class="brand" href="https://divine.video"><span class="logomark" aria-hidden="true"></span><span>Divine</span></a><span class="nav-right"><a class="me-link" href="/me">My badges →</a><span class="status"><span class="dot" aria-hidden="true"></span>Live &middot; updated daily</span></span></nav><header class="hero"><p class="eyebrow"><span class="sticker sticker--yellow">No slop. All human.</span></p><h1>Trophies for the loud<span class="punct">.</span></h1><p class="lede">Every day, every week, every month, we hand a badge to the loudest creator on Divine. No algorithm picks. No vibes check. Just loops. This page is the receipt.</p></header>{sections}<section class="howto"><p class="eyebrow eyebrow--mint">How we pick the loud</p><h2>Loops talk. We listen.</h2><ol><li><span class="n">1</span><p><b>We watch the loops.</b> Every morning we look at who&rsquo;s been racking up loops on Divine for the day, the week, and the month.</p></li><li><span class="n">2</span><p><b>Active humans only.</b> We skip anyone who hasn&rsquo;t posted a video in the last 30 days. Trophies are for the creators showing up.</p></li><li><span class="n">3</span><p><b>Badge hits the wallet.</b> The loudest creator in each window gets a signed Diviner badge on their Nostr profile, and a shout-out in our Discord.</p></li></ol></section><footer class="foot"><p>Built at <a href="https://divine.video">divine.video</a>. Open source. Own what you make. Life in loops.</p><nav><a href="/healthz">health</a><a href="https://github.com/divinevideo/divine-badges">source</a><a href="https://divine.video">divine.video</a></nav></footer></main></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diviner Awards · Divine</title><meta name="description" content="Diviner badges celebrate creators who spark positive reactions, comments, and reposts during exact closed UTC periods."><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap"><style>{css}</style></head><body><div class="splat splat--green"></div><div class="splat splat--pink"></div><div class="splat splat--yellow"></div><main class="shell"><nav class="topbar"><a class="brand" href="https://divine.video"><span class="logomark" aria-hidden="true"></span><span>Divine</span></a><span class="nav-right"><a class="me-link" href="/me">My badges →</a><span class="status"><span class="dot" aria-hidden="true"></span>Live &middot; updated daily</span></span></nav><header class="hero"><p class="eyebrow"><span class="sticker sticker--yellow">No slop. All human.</span></p><h1>Trophies for the spark<span class="punct">.</span></h1><p class="lede">Every day, every week, every month, we hand a badge to an eligible, active creator whose human-made videos sparked the strongest positive engagement in an exact closed UTC period. This page is the receipt.</p></header>{sections}<section class="howto"><p class="eyebrow eyebrow--mint">How we pick the spark</p><h2>Real people make the signal.</h2><ol><li><span class="n">1</span><p><b>Positive engagement ranks first.</b> Distinct people who leave positive reactions, comments, and reposts lift a creator. Negative reactions do not score.</p></li><li><span class="n">2</span><p><b>One person stays one person.</b> Repeated actions by the same person do not multiply influence. Unique reach is a small support signal; loop activity counts for less.</p></li><li><span class="n">3</span><p><b>Reach breaks the silence.</b> Reach only guarantees a winner when nobody gets qualifying positive engagement. It never outranks a creator who earned positive engagement.</p></li><li><span class="n">4</span><p><b>Exact periods, no moving targets.</b> We use the previous closed UTC day (00:00&ndash;24:00), the previous closed Monday-through-Sunday UTC week, and the previous closed calendar UTC month.</p></li></ol></section><footer class="foot"><p>Built at <a href="https://divine.video">divine.video</a>. Open source. Own what you make. Life in loops.</p><nav><a href="/healthz">health</a><a href="https://github.com/divinevideo/divine-badges">source</a><a href="https://divine.video">divine.video</a></nav></footer></main></body></html>"#,
         css = page_css()
     )
 }
@@ -104,13 +102,17 @@ fn render_section(section: &AwardHistorySection) -> String {
         "Diviner of the Day" => (
             "daily",
             "Daily drop",
-            "Whoever yesterday&rsquo;s loops loved most.",
+            "The previous closed UTC day. Positive engagement first.",
         ),
-        "Diviner of the Week" => ("weekly", "Weekly drop", "Seven days of loops. One badge."),
+        "Diviner of the Week" => (
+            "weekly",
+            "Weekly drop",
+            "The previous closed Monday-through-Sunday UTC week. One badge.",
+        ),
         "Diviner of the Month" => (
             "monthly",
             "Monthly drop",
-            "A month of loud. One human at the top.",
+            "The previous closed calendar UTC month. One human at the top.",
         ),
         _ => ("custom", "Drop", section.description),
     };
@@ -156,25 +158,16 @@ fn render_entry(entry: &AwardHistoryEntry, rank: usize) -> String {
         ""
     };
 
-    let loops = match entry.loops {
-        Some(value) => format!(
-            r#"<div class="score"><span class="num">{}</span><span class="unit">loops</span></div>"#,
-            format_loops(value)
-        ),
-        None => String::new(),
-    };
-
     let rank_class = if rank == 0 { " winner--first" } else { "" };
 
     format!(
-        r#"<li class="winner{rank_class}">{media}<div class="body">{stamp}<span class="period">{period}</span><a class="name" href="{url}">{name}</a></div>{loops}</li>"#,
+        r#"<li class="winner{rank_class}">{media}<div class="body">{stamp}<span class="period">{period}</span><a class="name" href="{url}">{name}</a></div></li>"#,
         rank_class = rank_class,
         media = media,
         stamp = stamp,
         period = escape_html(&entry.period_key),
         url = escape_html(&entry.profile_url),
         name = escape_html(&entry.winner_name),
-        loops = loops,
     )
 }
 
@@ -183,14 +176,6 @@ fn initials(name: &str) -> String {
         .find(|character| !character.is_whitespace())
         .map(|character| character.to_uppercase().collect())
         .unwrap_or_else(|| "?".into())
-}
-
-fn format_loops(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
-    } else {
-        format!("{value:.1}")
-    }
 }
 
 fn escape_html(value: &str) -> String {
@@ -244,7 +229,7 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weig
 .award h2{color:var(--off);font-size:clamp(2.4rem,5vw,4.4rem)}
 .award .deck{color:var(--mint);font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:clamp(1.25rem,1.7vw,1.7rem);line-height:1.25}
 .winners{list-style:none;display:grid;gap:16px}
-.winner{display:grid;grid-template-columns:auto 1fr auto;gap:24px;align-items:center;padding:22px 26px;background:var(--off);color:var(--dark);border:2px solid var(--dark);border-radius:22px;transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s cubic-bezier(.2,.7,.3,1);box-shadow:6px 6px 0 var(--green)}
+.winner{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;padding:22px 26px;background:var(--off);color:var(--dark);border:2px solid var(--dark);border-radius:22px;transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s cubic-bezier(.2,.7,.3,1);box-shadow:6px 6px 0 var(--green)}
 .winner:hover{transform:translate(-3px,-3px);box-shadow:9px 9px 0 var(--green)}
 .winner--first{background:var(--mint);box-shadow:6px 6px 0 var(--yellow)}
 .winner--first:hover{box-shadow:9px 9px 0 var(--yellow)}
@@ -267,9 +252,6 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weig
 .winner .period{font-family:'Inter',sans-serif;font-weight:500;font-size:.82rem;color:var(--dark);opacity:.65;font-variant-numeric:tabular-nums;letter-spacing:0}
 .winner .name{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:clamp(1.4rem,2vw,1.95rem);color:var(--dark);line-height:1.05;overflow-wrap:anywhere;transition:color .15s}
 .winner .name:hover{color:var(--dark);text-decoration:underline;text-decoration-thickness:3px;text-decoration-color:var(--pink);text-underline-offset:4px}
-.winner .score{text-align:left;padding-left:8px;border-left:2px solid rgba(7,36,27,.18);min-width:92px}
-.winner .score .num{display:block;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:clamp(2rem,3vw,2.8rem);color:var(--dark);line-height:1;font-variant-numeric:tabular-nums}
-.winner .score .unit{display:block;margin-top:4px;font-size:.78rem;font-weight:600;color:var(--dark);opacity:.6}
 .winner--empty{padding:36px;text-align:left;font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:1.15rem;color:var(--mint);background:transparent;border:2px dashed rgba(208,251,203,.38);box-shadow:none;grid-template-columns:1fr}
 .winner--empty:hover{transform:none;box-shadow:none}
 .howto{padding:clamp(44px,7vw,96px) 0;border-top:2px solid rgba(208,251,203,.14);position:relative}
@@ -279,9 +261,11 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weig
 .howto li:nth-child(1){box-shadow:6px 6px 0 var(--green)}
 .howto li:nth-child(2){box-shadow:6px 6px 0 var(--pink)}
 .howto li:nth-child(3){box-shadow:6px 6px 0 var(--yellow)}
+.howto li:nth-child(4){box-shadow:6px 6px 0 var(--violet)}
 .howto .n{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:3.4rem;line-height:.85;color:var(--green);display:block;margin-bottom:14px}
 .howto li:nth-child(2) .n{color:var(--pink)}
 .howto li:nth-child(3) .n{color:var(--orange)}
+.howto li:nth-child(4) .n{color:var(--purple)}
 .howto li p{font-size:1.02rem;line-height:1.55;color:var(--dark)}
 .foot{padding:52px 0 72px;border-top:2px solid rgba(208,251,203,.14);display:grid;grid-template-columns:1fr auto;gap:22px;align-items:center;color:var(--mint);font-size:.98rem}
 .foot p{max-width:64ch}
@@ -298,8 +282,6 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weig
 .foot{animation-delay:.34s}
 @media (max-width:760px){
   .winner{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:14px;padding:18px}
-  .winner .score{grid-column:1/-1;border-left:0;border-top:1.5px dashed rgba(7,36,27,.25);padding:10px 0 0;min-width:0}
-  .winner .score .num{font-size:2.1rem}
   .topbar{padding:18px 0}
   .hero{padding:24px 0 60px}
   .foot{grid-template-columns:1fr}

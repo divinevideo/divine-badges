@@ -13,7 +13,7 @@ pub struct ProfileMetadata {
 pub const DIVINE_BADGES_PROFILE: ProfileMetadata = ProfileMetadata {
     name: "divinebadges",
     display_name: "Divine Badges",
-    about: "Diviner of the Day, Week, Month. Badges for the loudest creators on Divine. Every day, every week, every month — no algorithm picks, just loops. https://badges.divine.video",
+    about: "Diviner of the Day, Week, and Month. Positive engagement ranks first: positive reactions, comments, and reposts from distinct people across exact closed UTC periods. Negative reactions do not score. Unique reach is a small support signal and only guarantees a winner when nobody gets qualifying positive engagement. https://badges.divine.video",
     picture: "https://badges.divine.video/avatar.png",
     website: "https://badges.divine.video",
     nip05: Some("badges@divine.video"),
