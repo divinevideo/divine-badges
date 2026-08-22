@@ -34,7 +34,7 @@ pub fn upsert_award_run_sql() -> &'static str {
 }
 
 pub fn claim_winner_sql() -> &'static str {
-    "UPDATE award_runs SET winner_pubkey = ?1, winner_display_name = ?2, winner_name = ?3, winner_nip05 = ?4, winner_picture = ?5, latest_eligible_publication_at = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, error_message = NULL, updated_at = ?18 WHERE award_slug = ?19 AND period_key = ?20 AND winner_pubkey IS NULL AND status IN ('pending', 'failed_fetch', 'skipped_inactive')"
+    "UPDATE award_runs SET winner_pubkey = ?1, winner_display_name = ?2, winner_name = ?3, winner_nip05 = ?4, winner_picture = ?5, latest_eligible_publication_at = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, status = 'pending', error_message = NULL, updated_at = ?18 WHERE award_slug = ?19 AND period_key = ?20 AND winner_pubkey IS NULL AND status IN ('pending', 'failed_fetch', 'skipped_inactive')"
 }
 
 pub fn claim_prepared_award_sql() -> &'static str {
@@ -54,7 +54,7 @@ pub fn mark_definition_failed_sql() -> &'static str {
 }
 
 pub fn mark_award_failed_sql() -> &'static str {
-    "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND prepared_award_event IS NOT NULL AND status IN ('award_prepared', 'failed_award')"
+    "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND status IN ('pending', 'failed_definition', 'award_prepared', 'failed_award')"
 }
 
 pub fn mark_awarded_sql() -> &'static str {

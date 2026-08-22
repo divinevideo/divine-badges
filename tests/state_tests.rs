@@ -29,7 +29,7 @@ fn definition_failure_transitions_to_failed_definition() {
 #[test]
 fn award_failure_transitions_to_failed_award() {
     assert_eq!(
-        next_status_after_award_failure(AwardRunStatus::AwardPrepared),
+        next_status_after_award_failure(AwardRunStatus::Pending),
         AwardRunStatus::FailedAward
     );
 }

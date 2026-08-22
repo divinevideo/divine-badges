@@ -155,6 +155,8 @@ impl AwardRepository for FakeRepo {
             .unwrap_or_else(|| proposed.clone());
         let mut claimed = current;
         copy_winner_receipt(&mut claimed, &source);
+        claimed.status = AwardRunStatus::Pending;
+        claimed.error_message = None;
         Ok(self.store(claimed))
     }
 
@@ -292,10 +294,13 @@ impl AwardRepository for FakeRepo {
             .get(&(slug.into(), key.into()))
             .cloned()
             .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        if current.prepared_award_event.is_none()
+        if current.winner_pubkey.is_none()
             || !matches!(
                 current.status,
-                AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward
+                AwardRunStatus::Pending
+                    | AwardRunStatus::FailedDefinition
+                    | AwardRunStatus::AwardPrepared
+                    | AwardRunStatus::FailedAward
             )
         {
             return Ok(current);
@@ -1090,7 +1095,7 @@ fn failed_award_resumes_the_stored_prepared_event_without_refetch_or_resigning()
 }
 
 #[test]
-fn preparation_failure_preserves_the_stored_winner_without_advancing_to_prepared() {
+fn preparation_failure_records_failed_award_and_retries_from_the_stored_winner() {
     block_on(async {
         let repo = FakeRepo::default();
         let candidates = FakeCandidates {
@@ -1105,9 +1110,35 @@ fn preparation_failure_preserves_the_stored_winner_without_advancing_to_prepared
             .await
             .unwrap();
 
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::Pending);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::FailedAward);
         assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(FIRST));
+        assert!(outcome.runs[0]
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("signing unavailable"));
         assert!(publisher.published_awards.borrow().is_empty());
+        assert_eq!(candidates.calls.borrow().len(), 1);
+
+        let changed_upstream = FakeCandidates {
+            candidates: vec![candidate(SECOND, "changed winner", 1)],
+            ..Default::default()
+        };
+        let retry_publisher = FakePublisher::new(repo.operations.clone());
+        let retried = execute(
+            tick() + Duration::minutes(1),
+            &repo,
+            &changed_upstream,
+            &retry_publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(retried.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(retried.runs[0].winner_pubkey.as_deref(), Some(FIRST));
+        assert!(changed_upstream.calls.borrow().is_empty());
+        assert_eq!(retry_publisher.published_awards.borrow().len(), 1);
     });
 }
 
