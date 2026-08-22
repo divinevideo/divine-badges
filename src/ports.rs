@@ -78,7 +78,11 @@ pub trait DivinerCandidatesClient {
 
 #[async_trait(?Send)]
 pub trait CreatorActivityClient {
-    async fn latest_video(&self, pubkey: &str) -> Result<Option<CreatorLatestVideo>, AppError>;
+    async fn latest_video_before(
+        &self,
+        pubkey: &str,
+        period_end: DateTime<Utc>,
+    ) -> Result<Option<CreatorLatestVideo>, AppError>;
 }
 
 #[async_trait(?Send)]

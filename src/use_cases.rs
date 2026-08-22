@@ -82,7 +82,10 @@ where
                 continue;
             }
 
-            let latest_video = match activity.latest_video(&creator.pubkey).await {
+            let latest_video = match activity
+                .latest_video_before(&creator.pubkey, period.end)
+                .await
+            {
                 Ok(video) => video,
                 Err(err) => {
                     runs.push(

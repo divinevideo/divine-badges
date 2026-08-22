@@ -16,8 +16,12 @@ pub const DIVINER_AWARD_EXCLUDED_PUBKEYS: [&str; 10] = [
     "295dbec79ee785496f703c9648f246665d46839c1d5f582c0342b4583da5ccb4",
 ];
 
-pub fn is_active_creator(now: DateTime<Utc>, latest_video: &CreatorLatestVideo) -> bool {
-    latest_video.published_at >= now - Duration::days(30)
+pub fn is_active_creator(period_end: DateTime<Utc>, latest_video: &CreatorLatestVideo) -> bool {
+    let Some(active_since) = period_end.checked_sub_signed(Duration::days(30)) else {
+        return false;
+    };
+
+    latest_video.published_at >= active_since && latest_video.published_at < period_end
 }
 
 pub fn is_diviner_award_excluded_creator(pubkey: &str) -> bool {

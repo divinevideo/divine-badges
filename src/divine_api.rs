@@ -162,12 +162,17 @@ pub async fn ranked_candidates_for_period(
     candidates_from_http_response(status_code, &body, start, end, candidate_window)
 }
 
-pub fn build_latest_video_url(base_url: &str, pubkey: &str) -> Result<Url, AppError> {
+pub fn build_latest_video_url(
+    base_url: &str,
+    pubkey: &str,
+    period_end: DateTime<Utc>,
+) -> Result<Url, AppError> {
     let mut url = Url::parse(base_url).map_err(|err| AppError::Api(err.to_string()))?;
     url.set_path(&format!("/api/users/{pubkey}/videos"));
     url.query_pairs_mut()
         .append_pair("sort", "published")
-        .append_pair("limit", "1");
+        .append_pair("limit", "1")
+        .append_pair("before", &period_end.timestamp().to_string());
     Ok(url)
 }
 
@@ -256,8 +261,12 @@ mod wasm_clients {
 
     #[async_trait(?Send)]
     impl CreatorActivityClient for WasmActivityClient {
-        async fn latest_video(&self, pubkey: &str) -> Result<Option<CreatorLatestVideo>, AppError> {
-            let url = build_latest_video_url(&self.base_url, pubkey)?;
+        async fn latest_video_before(
+            &self,
+            pubkey: &str,
+            period_end: DateTime<Utc>,
+        ) -> Result<Option<CreatorLatestVideo>, AppError> {
+            let url = build_latest_video_url(&self.base_url, pubkey, period_end)?;
             let mut response = Fetch::Url(url)
                 .send()
                 .await

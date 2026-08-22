@@ -22,6 +22,7 @@ const FIRST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
 const SECOND: &str = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 const JS_SAFE_MAX: u64 = 9_007_199_254_740_991;
 type CandidateCall = (DateTime<Utc>, DateTime<Utc>, usize);
+type ActivityCall = (String, DateTime<Utc>);
 
 struct FakeRepo {
     definitions: RefCell<HashMap<String, BadgeDefinitionRecord>>,
@@ -211,13 +212,17 @@ enum ActivityResult {
 #[derive(Default)]
 struct FakeActivity {
     latest: HashMap<String, ActivityResult>,
-    calls: RefCell<Vec<String>>,
+    calls: RefCell<Vec<ActivityCall>>,
 }
 
 #[async_trait(?Send)]
 impl CreatorActivityClient for FakeActivity {
-    async fn latest_video(&self, pubkey: &str) -> Result<Option<CreatorLatestVideo>, AppError> {
-        self.calls.borrow_mut().push(pubkey.into());
+    async fn latest_video_before(
+        &self,
+        pubkey: &str,
+        period_end: DateTime<Utc>,
+    ) -> Result<Option<CreatorLatestVideo>, AppError> {
+        self.calls.borrow_mut().push((pubkey.into(), period_end));
         match self.latest.get(pubkey) {
             Some(ActivityResult::Found(video)) => Ok(Some(video.clone())),
             Some(ActivityResult::Failed(error)) => Err(AppError::Api(error.clone())),
@@ -409,7 +414,13 @@ fn preserves_upstream_order_without_recomputing_scores() {
         .unwrap();
 
         assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(FIRST));
-        assert_eq!(activity.calls.borrow().as_slice(), &[FIRST]);
+        assert_eq!(
+            activity.calls.borrow().as_slice(),
+            &[(
+                FIRST.into(),
+                Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap()
+            )]
+        );
         assert_eq!(publisher.winners.borrow().as_slice(), &[FIRST]);
     });
 }
@@ -448,7 +459,19 @@ fn skips_founder_and_inactive_candidate_then_awards_next_active_candidate() {
         .unwrap();
 
         assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(SECOND));
-        assert_eq!(activity.calls.borrow().as_slice(), &[FIRST, SECOND]);
+        assert_eq!(
+            activity.calls.borrow().as_slice(),
+            &[
+                (
+                    FIRST.into(),
+                    Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap()
+                ),
+                (
+                    SECOND.into(),
+                    Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap()
+                )
+            ]
+        );
     });
 }
 
@@ -479,6 +502,45 @@ fn anchors_activity_to_period_end_instead_of_retry_tick() {
         .unwrap();
 
         assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(
+            activity.calls.borrow().as_slice(),
+            &[(
+                FIRST.into(),
+                Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap()
+            )]
+        );
+    });
+}
+
+#[test]
+fn post_period_video_cannot_make_a_creator_eligible_on_a_historical_retry_tick() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "post-period creator", 1)],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 15, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 23, 55, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
+        assert_eq!(*publisher.count.borrow(), 0);
+        assert!(discord.messages.borrow().is_empty());
     });
 }
 

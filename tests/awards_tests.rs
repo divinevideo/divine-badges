@@ -1,8 +1,8 @@
 use chrono::{TimeZone, Utc};
 use divine_badges::awards::award_catalog;
 use divine_badges::divine_api::{
-    build_diviner_candidates_url, parse_diviner_candidates_response, ranked_candidates_for_period,
-    validate_diviner_candidates_response,
+    build_diviner_candidates_url, build_latest_video_url, parse_diviner_candidates_response,
+    ranked_candidates_for_period, validate_diviner_candidates_response,
 };
 use divine_badges::error::AppError;
 use divine_badges::models::{DivinerCandidate, DivinerCandidatesResponse};
@@ -312,6 +312,23 @@ fn divine_api_rejects_more_entries_than_requested() {
 
     assert!(error.to_string().contains("2 entries"));
     assert!(error.to_string().contains("requested maximum 1"));
+}
+
+#[test]
+fn latest_video_url_requests_the_latest_video_before_the_period_end() {
+    let period_end = Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap();
+
+    let url = build_latest_video_url(
+        "https://api.divine.video",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        period_end,
+    )
+    .unwrap();
+
+    assert_eq!(
+        url.as_str(),
+        "https://api.divine.video/api/users/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/videos?sort=published&limit=1&before=1787356800"
+    );
 }
 
 #[test]
