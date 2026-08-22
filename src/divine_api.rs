@@ -7,8 +7,20 @@ use crate::models::{
     LeaderboardResponse,
 };
 
+const MIN_CANDIDATE_WINDOW: usize = 1;
+const MAX_CANDIDATE_WINDOW: usize = 100;
+
 fn canonical_utc_timestamp(timestamp: DateTime<Utc>) -> String {
     timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn validate_candidate_window(candidate_window: usize) -> Result<(), AppError> {
+    if !(MIN_CANDIDATE_WINDOW..=MAX_CANDIDATE_WINDOW).contains(&candidate_window) {
+        return Err(AppError::Api(format!(
+            "Diviner candidate window must be between {MIN_CANDIDATE_WINDOW} and {MAX_CANDIDATE_WINDOW}"
+        )));
+    }
+    Ok(())
 }
 
 pub fn build_diviner_candidates_url(
@@ -17,6 +29,7 @@ pub fn build_diviner_candidates_url(
     end: DateTime<Utc>,
     candidate_window: usize,
 ) -> Result<Url, AppError> {
+    validate_candidate_window(candidate_window)?;
     let mut url = Url::parse(base_url).map_err(|err| AppError::Api(err.to_string()))?;
     url.set_path("/api/awards/diviner-candidates");
     url.query_pairs_mut()
@@ -32,15 +45,14 @@ pub fn parse_diviner_candidates_response(
     serde_json::from_str(body).map_err(|err| AppError::Api(err.to_string()))
 }
 
-fn candidates_from_http_response(
-    status_code: u16,
-    body: &str,
+pub fn validate_diviner_candidates_response(
+    response: DivinerCandidatesResponse,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
+    candidate_window: usize,
 ) -> Result<Vec<DivinerCandidate>, AppError> {
-    ensure_successful_candidates_status(status_code)?;
+    validate_candidate_window(candidate_window)?;
 
-    let response = parse_diviner_candidates_response(body)?;
     if response.start != start || response.end != end {
         return Err(AppError::Api(format!(
             "Diviner candidates period mismatch: expected {}..{}, received {}..{}",
@@ -57,7 +69,71 @@ fn candidates_from_http_response(
             canonical_utc_timestamp(end)
         )));
     }
+    if response.entries.len() > candidate_window {
+        return Err(AppError::Api(format!(
+            "Diviner candidates response returned {} entries for requested maximum {candidate_window}",
+            response.entries.len()
+        )));
+    }
+
+    for (index, candidate) in response.entries.iter().enumerate() {
+        let position = index + 1;
+        let expected_rank = position as u64;
+        let candidate_error = |message: &str| {
+            AppError::Api(format!(
+                "invalid Diviner candidate at position {position} (reported rank {}): {message}",
+                candidate.rank
+            ))
+        };
+
+        if candidate.rank != expected_rank {
+            return Err(candidate_error(&format!(
+                "expected rank {expected_rank}, reported rank {}",
+                candidate.rank
+            )));
+        }
+        if candidate.pubkey.len() != 64
+            || !candidate
+                .pubkey
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(candidate_error(
+                "pubkey must contain exactly 64 ASCII hexadecimal characters",
+            ));
+        }
+        if !candidate.loops.is_finite() || candidate.loops < 0.0 {
+            return Err(candidate_error("loops must be finite and nonnegative"));
+        }
+        if !candidate.engagement_rate.is_finite() || candidate.engagement_rate < 0.0 {
+            return Err(candidate_error(
+                "engagement_rate must be finite and nonnegative",
+            ));
+        }
+        if !candidate.score.is_finite() || !(0.0..=100.0).contains(&candidate.score) {
+            return Err(candidate_error(
+                "score must be finite and in the range 0 through 100",
+            ));
+        }
+        if !matches!(candidate.engagement_tier, 0 | 1) {
+            return Err(candidate_error("engagement_tier must be 0 or 1"));
+        }
+    }
+
     Ok(response.entries)
+}
+
+fn candidates_from_http_response(
+    status_code: u16,
+    body: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    candidate_window: usize,
+) -> Result<Vec<DivinerCandidate>, AppError> {
+    ensure_successful_candidates_status(status_code)?;
+
+    let response = parse_diviner_candidates_response(body)?;
+    validate_diviner_candidates_response(response, start, end, candidate_window)
 }
 
 fn ensure_successful_candidates_status(status_code: u16) -> Result<(), AppError> {
@@ -78,7 +154,7 @@ pub async fn ranked_candidates_for_period(
 ) -> Result<Vec<DivinerCandidate>, AppError> {
     let url = build_diviner_candidates_url(base_url, start, end, candidate_window)?;
     let (status_code, body) = fetch_response(url)?;
-    candidates_from_http_response(status_code, &body, start, end)
+    candidates_from_http_response(status_code, &body, start, end, candidate_window)
 }
 
 // Temporary compatibility helpers for rolling leaderboard call sites. Remove
@@ -194,7 +270,7 @@ mod wasm_clients {
                 .await
                 .map_err(|err| AppError::Api(err.to_string()))?;
 
-            candidates_from_http_response(status_code, &body, start, end)
+            candidates_from_http_response(status_code, &body, start, end, candidate_window)
         }
     }
 

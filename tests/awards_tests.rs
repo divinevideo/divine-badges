@@ -2,9 +2,56 @@ use chrono::{TimeZone, Utc};
 use divine_badges::awards::award_catalog;
 use divine_badges::divine_api::{
     build_diviner_candidates_url, parse_diviner_candidates_response, ranked_candidates_for_period,
+    validate_diviner_candidates_response,
 };
 use divine_badges::error::AppError;
-use divine_badges::models::DivinerCandidate;
+use divine_badges::models::{DivinerCandidate, DivinerCandidatesResponse};
+
+fn exact_period() -> (chrono::DateTime<Utc>, chrono::DateTime<Utc>) {
+    (
+        Utc.with_ymd_and_hms(2026, 8, 21, 0, 0, 0).unwrap(),
+        Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap(),
+    )
+}
+
+fn valid_diviner_candidate(rank: u64) -> DivinerCandidate {
+    DivinerCandidate {
+        pubkey: format!("{rank:064x}"),
+        name: "ori3".into(),
+        display_name: "Ori3".into(),
+        nip05: None,
+        picture: "".into(),
+        views: 100,
+        unique_viewers: 50,
+        loops: 136.0,
+        videos_with_views: 21,
+        positive_reactors: 10,
+        distinct_commenters: 9,
+        distinct_reposters: 8,
+        distinct_positive_engagers: 20,
+        engagement_tier: 1,
+        engagement_rate: 0.4,
+        score: 87.5,
+        rank,
+    }
+}
+
+fn candidate_response(entries: Vec<DivinerCandidate>) -> DivinerCandidatesResponse {
+    let (start, end) = exact_period();
+    DivinerCandidatesResponse {
+        start,
+        end,
+        entries,
+    }
+}
+
+fn validate_candidates(
+    entries: Vec<DivinerCandidate>,
+    candidate_window: usize,
+) -> Result<Vec<DivinerCandidate>, AppError> {
+    let (start, end) = exact_period();
+    validate_diviner_candidates_response(candidate_response(entries), start, end, candidate_window)
+}
 
 #[test]
 fn award_catalog_contains_three_fixed_creator_awards() {
@@ -238,4 +285,125 @@ fn divine_api_rejects_response_for_a_different_exact_period() {
     assert!(error
         .to_string()
         .contains("received 2026-08-20T00:00:00Z..2026-08-21T00:00:00Z"));
+}
+
+#[test]
+fn divine_api_rejects_candidate_windows_outside_endpoint_limits() {
+    let (start, end) = exact_period();
+
+    for invalid_window in [0, 101, usize::MAX] {
+        let error =
+            build_diviner_candidates_url("https://api.divine.video", start, end, invalid_window)
+                .unwrap_err();
+
+        assert!(matches!(error, AppError::Api(_)));
+        assert!(error.to_string().contains("between 1 and 100"));
+    }
+}
+
+#[test]
+fn divine_api_rejects_more_entries_than_requested() {
+    let error = validate_candidates(
+        vec![valid_diviner_candidate(1), valid_diviner_candidate(2)],
+        1,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("2 entries"));
+    assert!(error.to_string().contains("requested maximum 1"));
+}
+
+#[test]
+fn divine_api_rejects_zero_duplicate_and_reordered_ranks() {
+    let invalid_rankings = [
+        ("zero", vec![valid_diviner_candidate(0)]),
+        (
+            "duplicate",
+            vec![valid_diviner_candidate(1), valid_diviner_candidate(1)],
+        ),
+        (
+            "reordered",
+            vec![valid_diviner_candidate(2), valid_diviner_candidate(1)],
+        ),
+    ];
+
+    for (case, entries) in invalid_rankings {
+        let error = validate_candidates(entries, 10).unwrap_err();
+        assert!(
+            error.to_string().contains("expected rank"),
+            "{case}: {error}"
+        );
+        assert!(
+            error.to_string().contains("reported rank"),
+            "{case}: {error}"
+        );
+    }
+}
+
+#[test]
+fn divine_api_rejects_noncanonical_candidate_pubkeys() {
+    let invalid_pubkeys = ["a".repeat(63), "g".repeat(64), "é".repeat(64)];
+
+    for pubkey in invalid_pubkeys {
+        let mut candidate = valid_diviner_candidate(1);
+        candidate.pubkey = pubkey;
+
+        let error = validate_candidates(vec![candidate], 10).unwrap_err();
+        assert!(error.to_string().contains("candidate at position 1"));
+        assert!(error.to_string().contains("reported rank 1"));
+        assert!(error.to_string().contains("64 ASCII hexadecimal"));
+    }
+}
+
+#[test]
+fn divine_api_rejects_nonfinite_or_negative_loops() {
+    for loops in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.1] {
+        let mut candidate = valid_diviner_candidate(1);
+        candidate.loops = loops;
+
+        let error = validate_candidates(vec![candidate], 10).unwrap_err();
+        assert!(error.to_string().contains("candidate at position 1"));
+        assert!(error.to_string().contains("loops"));
+    }
+}
+
+#[test]
+fn divine_api_rejects_nonfinite_or_negative_engagement_rates_but_allows_rates_above_one() {
+    for engagement_rate in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.1] {
+        let mut candidate = valid_diviner_candidate(1);
+        candidate.engagement_rate = engagement_rate;
+
+        let error = validate_candidates(vec![candidate], 10).unwrap_err();
+        assert!(error.to_string().contains("candidate at position 1"));
+        assert!(error.to_string().contains("engagement_rate"));
+    }
+
+    let mut candidate = valid_diviner_candidate(1);
+    candidate.engagement_rate = 2.5;
+    candidate.distinct_positive_engagers = 250;
+    assert_eq!(validate_candidates(vec![candidate], 10).unwrap().len(), 1);
+}
+
+#[test]
+fn divine_api_rejects_nonfinite_or_out_of_range_scores() {
+    for score in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.1, 100.1] {
+        let mut candidate = valid_diviner_candidate(1);
+        candidate.score = score;
+
+        let error = validate_candidates(vec![candidate], 10).unwrap_err();
+        assert!(error.to_string().contains("candidate at position 1"));
+        assert!(error.to_string().contains("score"));
+        assert!(error.to_string().contains("0 through 100"));
+    }
+}
+
+#[test]
+fn divine_api_rejects_engagement_tiers_outside_zero_or_one() {
+    let mut candidate = valid_diviner_candidate(1);
+    candidate.engagement_tier = 2;
+
+    let error = validate_candidates(vec![candidate], 10).unwrap_err();
+    assert!(error.to_string().contains("candidate at position 1"));
+    assert!(error.to_string().contains("engagement_tier"));
+    assert!(error.to_string().contains("0 or 1"));
 }
