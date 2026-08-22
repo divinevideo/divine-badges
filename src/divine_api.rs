@@ -1,7 +1,88 @@
+use chrono::{DateTime, SecondsFormat, Utc};
 use url::Url;
 
 use crate::error::AppError;
-use crate::models::{CreatorLatestVideo, LeaderboardCreator, LeaderboardResponse};
+use crate::models::{
+    CreatorLatestVideo, DivinerCandidate, DivinerCandidatesResponse, LeaderboardCreator,
+    LeaderboardResponse,
+};
+
+fn canonical_utc_timestamp(timestamp: DateTime<Utc>) -> String {
+    timestamp.to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+pub fn build_diviner_candidates_url(
+    base_url: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    candidate_window: usize,
+) -> Result<Url, AppError> {
+    let mut url = Url::parse(base_url).map_err(|err| AppError::Api(err.to_string()))?;
+    url.set_path("/api/awards/diviner-candidates");
+    url.query_pairs_mut()
+        .append_pair("start", &canonical_utc_timestamp(start))
+        .append_pair("end", &canonical_utc_timestamp(end))
+        .append_pair("limit", &candidate_window.to_string());
+    Ok(url)
+}
+
+pub fn parse_diviner_candidates_response(
+    body: &str,
+) -> Result<DivinerCandidatesResponse, AppError> {
+    serde_json::from_str(body).map_err(|err| AppError::Api(err.to_string()))
+}
+
+fn candidates_from_http_response(
+    status_code: u16,
+    body: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+) -> Result<Vec<DivinerCandidate>, AppError> {
+    ensure_successful_candidates_status(status_code)?;
+
+    let response = parse_diviner_candidates_response(body)?;
+    if response.start != start || response.end != end {
+        return Err(AppError::Api(format!(
+            "Diviner candidates period mismatch: expected {}..{}, received {}..{}",
+            canonical_utc_timestamp(start),
+            canonical_utc_timestamp(end),
+            canonical_utc_timestamp(response.start),
+            canonical_utc_timestamp(response.end)
+        )));
+    }
+    if response.entries.is_empty() {
+        return Err(AppError::EmptyLeaderboard(format!(
+            "{}..{}",
+            canonical_utc_timestamp(start),
+            canonical_utc_timestamp(end)
+        )));
+    }
+    Ok(response.entries)
+}
+
+fn ensure_successful_candidates_status(status_code: u16) -> Result<(), AppError> {
+    if !(200..300).contains(&status_code) {
+        return Err(AppError::Api(format!(
+            "Diviner candidates request failed with {status_code}"
+        )));
+    }
+    Ok(())
+}
+
+pub async fn ranked_candidates_for_period(
+    fetch_response: impl FnOnce(Url) -> Result<(u16, String), AppError>,
+    base_url: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    candidate_window: usize,
+) -> Result<Vec<DivinerCandidate>, AppError> {
+    let url = build_diviner_candidates_url(base_url, start, end, candidate_window)?;
+    let (status_code, body) = fetch_response(url)?;
+    candidates_from_http_response(status_code, &body, start, end)
+}
+
+// Temporary compatibility helpers for rolling leaderboard call sites. Remove
+// with the exact-boundary selection migration in Task 11.
 
 pub fn build_leaderboard_url(
     base_url: &str,
@@ -69,17 +150,56 @@ pub fn parse_latest_video_response(body: &str) -> Result<Option<CreatorLatestVid
 #[cfg(target_arch = "wasm32")]
 mod wasm_clients {
     use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
     use worker::Fetch;
 
     use crate::error::AppError;
-    use crate::models::{CreatorLatestVideo, LeaderboardCreator};
-    use crate::ports::{CreatorActivityClient, LeaderboardClient};
+    use crate::models::{CreatorLatestVideo, DivinerCandidate, LeaderboardCreator};
+    use crate::ports::{CreatorActivityClient, DivinerCandidatesClient, LeaderboardClient};
 
     use super::{
-        build_latest_video_url, build_leaderboard_url, parse_latest_video_response,
-        parse_leaderboard_response,
+        build_diviner_candidates_url, build_latest_video_url, build_leaderboard_url,
+        candidates_from_http_response, ensure_successful_candidates_status,
+        parse_latest_video_response, parse_leaderboard_response,
     };
 
+    #[derive(Debug, Clone)]
+    pub struct WasmDivinerCandidatesClient {
+        base_url: String,
+    }
+
+    impl WasmDivinerCandidatesClient {
+        pub fn new(base_url: String) -> Self {
+            Self { base_url }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl DivinerCandidatesClient for WasmDivinerCandidatesClient {
+        async fn ranked_candidates(
+            &self,
+            start: DateTime<Utc>,
+            end: DateTime<Utc>,
+            candidate_window: usize,
+        ) -> Result<Vec<DivinerCandidate>, AppError> {
+            let url = build_diviner_candidates_url(&self.base_url, start, end, candidate_window)?;
+            let mut response = Fetch::Url(url)
+                .send()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            let status_code = response.status_code();
+            ensure_successful_candidates_status(status_code)?;
+            let body = response
+                .text()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+
+            candidates_from_http_response(status_code, &body, start, end)
+        }
+    }
+
+    /// Temporary compatibility adapter for rolling leaderboard call sites.
+    /// Remove with the exact-boundary selection migration in Task 11.
     #[derive(Debug, Clone)]
     pub struct WasmLeaderboardClient {
         base_url: String,
@@ -154,4 +274,4 @@ mod wasm_clients {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm_clients::{WasmActivityClient, WasmLeaderboardClient};
+pub use wasm_clients::{WasmActivityClient, WasmDivinerCandidatesClient, WasmLeaderboardClient};

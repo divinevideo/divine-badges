@@ -99,12 +99,57 @@ impl BadgeDefinitionRecord {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DivinerCandidatesResponse {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub entries: Vec<DivinerCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DivinerCandidate {
+    pub pubkey: String,
+    pub name: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub nip05: Option<String>,
+    pub picture: String,
+    pub views: u64,
+    pub unique_viewers: u64,
+    pub loops: f64,
+    pub videos_with_views: u64,
+    pub positive_reactors: u64,
+    pub distinct_commenters: u64,
+    pub distinct_reposters: u64,
+    pub distinct_positive_engagers: u64,
+    pub engagement_tier: u8,
+    pub engagement_rate: f64,
+    pub score: f64,
+    pub rank: u64,
+}
+
+impl DivinerCandidate {
+    pub fn best_display_name(&self) -> String {
+        if !self.display_name.trim().is_empty() {
+            self.display_name.clone()
+        } else if !self.name.trim().is_empty() {
+            self.name.clone()
+        } else {
+            self.pubkey.clone()
+        }
+    }
+}
+
+/// Temporary compatibility response for the rolling leaderboard call sites.
+/// Remove with the exact-boundary selection migration in Task 11.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LeaderboardResponse {
     pub period: String,
     pub entries: Vec<LeaderboardCreator>,
 }
 
+/// Temporary compatibility candidate for the rolling leaderboard call sites.
+/// Remove with the exact-boundary selection migration in Task 11.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LeaderboardCreator {
     pub pubkey: String,
@@ -126,7 +171,7 @@ impl LeaderboardCreator {
         } else if !self.name.trim().is_empty() {
             self.name.clone()
         } else {
-            self.pubkey.chars().take(8).collect()
+            self.pubkey.clone()
         }
     }
 }

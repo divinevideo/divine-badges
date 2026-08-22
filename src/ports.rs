@@ -1,8 +1,11 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 use crate::awards::AwardDefinition;
 use crate::error::AppError;
-use crate::models::{AwardRun, BadgeDefinitionRecord, CreatorLatestVideo, LeaderboardCreator};
+use crate::models::{
+    AwardRun, BadgeDefinitionRecord, CreatorLatestVideo, DivinerCandidate, LeaderboardCreator,
+};
 use crate::nostr::DefinitionPublishResult;
 
 #[async_trait(?Send)]
@@ -65,6 +68,18 @@ pub trait AwardRepository {
     ) -> Result<AwardRun, AppError>;
 }
 
+#[async_trait(?Send)]
+pub trait DivinerCandidatesClient {
+    async fn ranked_candidates(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        candidate_window: usize,
+    ) -> Result<Vec<DivinerCandidate>, AppError>;
+}
+
+/// Temporary compatibility port for rolling leaderboard call sites.
+/// Remove with the exact-boundary selection migration in Task 11.
 #[async_trait(?Send)]
 pub trait LeaderboardClient {
     async fn ranked_creators(
