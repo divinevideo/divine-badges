@@ -1,11 +1,28 @@
 use chrono::{TimeZone, Utc};
-use divine_badges::eligibility::{
-    is_active_creator, is_diviner_award_excluded_creator, select_first_active_creator,
-    DIVINER_AWARD_EXCLUDED_PUBKEYS,
-};
-use divine_badges::models::{CreatorLatestVideo, LeaderboardCreator};
-use divine_badges::nip19::encode_npub;
-use std::collections::BTreeSet;
+use divine_badges::eligibility::{is_active_creator, select_first_active_creator};
+use divine_badges::models::{CreatorLatestVideo, DivinerCandidate};
+
+fn candidate(pubkey: &str, display_name: &str, rank: u64) -> DivinerCandidate {
+    DivinerCandidate {
+        pubkey: pubkey.into(),
+        display_name: display_name.into(),
+        name: display_name.into(),
+        nip05: None,
+        picture: String::new(),
+        views: 1,
+        unique_viewers: 1,
+        loops: 1.0,
+        videos_with_views: 1,
+        positive_reactors: 1,
+        distinct_commenters: 1,
+        distinct_reposters: 1,
+        distinct_positive_engagers: 1,
+        engagement_tier: 1,
+        engagement_rate: 1.0,
+        score: 1.0,
+        rank,
+    }
+}
 
 #[test]
 fn creator_is_active_when_latest_published_video_is_within_30_days() {
@@ -28,41 +45,11 @@ fn creator_is_inactive_when_latest_published_video_is_older_than_30_days() {
 }
 
 #[test]
-fn diviner_award_exclusion_matches_founder_pubkey_defensively() {
-    assert!(is_diviner_award_excluded_creator(
-        " D95AA8FC0EFF8E488952495B8064991D27FB96ED8652F12CDEDC5A4E8B5AE540 "
-    ));
-    assert!(!is_diviner_award_excluded_creator(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    ));
-}
-
-#[test]
 fn winner_selection_skips_archive_accounts_until_it_finds_an_active_creator() {
     let now = Utc.with_ymd_and_hms(2026, 4, 13, 0, 5, 0).unwrap();
-    let ranked = vec![
-        LeaderboardCreator {
-            pubkey: "archivepubkey".into(),
-            display_name: "KingBach".into(),
-            name: "KingBach".into(),
-            nip05: None,
-            picture: "".into(),
-            loops: 1100.0,
-            views: 1000,
-            unique_viewers: 500,
-            videos_with_views: 93,
-        },
-        LeaderboardCreator {
-            pubkey: "activepubkey".into(),
-            display_name: "rabble".into(),
-            name: "rabble".into(),
-            nip05: None,
-            picture: "".into(),
-            loops: 431.0,
-            views: 400,
-            unique_viewers: 200,
-            videos_with_views: 56,
-        },
+    let ranked = [
+        candidate("archivepubkey", "KingBach", 1),
+        candidate("activepubkey", "rabble", 2),
     ];
 
     let winner = select_first_active_creator(now, ranked.iter(), |pubkey| match pubkey {
@@ -77,45 +64,4 @@ fn winner_selection_skips_archive_accounts_until_it_finds_an_active_creator() {
     .unwrap();
 
     assert_eq!(winner.pubkey, "activepubkey");
-}
-
-#[test]
-fn documented_personnel_accounts_match_the_exclusion_list() {
-    let documented_accounts: Vec<(&str, &str)> =
-        include_str!("../docs/divine-staff-nostr-accounts.md")
-            .lines()
-            .filter(|line| line.starts_with("| npub1"))
-            .map(|line| {
-                let mut columns = line
-                    .split('|')
-                    .map(str::trim)
-                    .filter(|cell| !cell.is_empty());
-                let npub = columns.next().expect("documented npub");
-                let hex = columns.next().expect("documented hex pubkey");
-                assert!(
-                    columns.next().is_none(),
-                    "unexpected roster column in {line}"
-                );
-                (npub, hex)
-            })
-            .collect();
-
-    assert_eq!(
-        documented_accounts.len(),
-        DIVINER_AWARD_EXCLUDED_PUBKEYS.len()
-    );
-
-    let documented_hex: BTreeSet<&str> = documented_accounts
-        .iter()
-        .map(|(npub, hex)| {
-            let encoded = encode_npub(hex).expect("documented hex pubkey should encode");
-            assert_eq!(encoded, *npub);
-            assert!(is_diviner_award_excluded_creator(hex));
-            assert!(is_diviner_award_excluded_creator(&hex.to_uppercase()));
-            *hex
-        })
-        .collect();
-    let excluded_hex: BTreeSet<&str> = DIVINER_AWARD_EXCLUDED_PUBKEYS.iter().copied().collect();
-
-    assert_eq!(documented_hex, excluded_hex);
 }

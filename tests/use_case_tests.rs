@@ -1,26 +1,60 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::config::AppConfig;
-use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
 use divine_badges::error::AppError;
 use divine_badges::models::{
-    AwardRun, BadgeDefinitionRecord, CreatorLatestVideo, LeaderboardCreator,
+    AwardRun, BadgeDefinitionRecord, CreatorLatestVideo, DivinerCandidate,
 };
 use divine_badges::ports::{
-    AwardRepository, BadgePublisher, CreatorActivityClient, DiscordClient, LeaderboardClient,
+    AwardRepository, BadgePublisher, CreatorActivityClient, DiscordClient, DivinerCandidatesClient,
 };
 use divine_badges::state::AwardRunStatus;
-use divine_badges::use_cases::run_award_tick;
+use divine_badges::use_cases::{run_award_tick, TickOutcome};
 use futures::executor::block_on;
 
-#[derive(Default)]
+const FOUNDER: &str = "d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540";
+const FIRST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const SECOND: &str = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+const JS_SAFE_MAX: u64 = 9_007_199_254_740_991;
+type CandidateCall = (DateTime<Utc>, DateTime<Utc>, usize);
+
 struct FakeRepo {
-    badge_definitions: RefCell<HashMap<String, BadgeDefinitionRecord>>,
+    definitions: RefCell<HashMap<String, BadgeDefinitionRecord>>,
     runs: RefCell<HashMap<(String, String), AwardRun>>,
+    operations: Rc<RefCell<Vec<String>>>,
+}
+
+impl Default for FakeRepo {
+    fn default() -> Self {
+        Self {
+            definitions: RefCell::new(HashMap::new()),
+            runs: RefCell::new(HashMap::new()),
+            operations: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+}
+
+impl FakeRepo {
+    fn update(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        status: AwardRunStatus,
+        error: Option<&str>,
+    ) -> Result<AwardRun, AppError> {
+        let mut runs = self.runs.borrow_mut();
+        let run = runs
+            .get_mut(&(award_slug.into(), period_key.into()))
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        run.status = status;
+        run.error_message = error.map(str::to_owned);
+        Ok(run.clone())
+    }
 }
 
 #[async_trait(?Send)]
@@ -29,7 +63,7 @@ impl AwardRepository for FakeRepo {
         &self,
         record: &BadgeDefinitionRecord,
     ) -> Result<(), AppError> {
-        self.badge_definitions
+        self.definitions
             .borrow_mut()
             .entry(record.award_slug.clone())
             .or_insert_with(|| record.clone());
@@ -40,11 +74,11 @@ impl AwardRepository for FakeRepo {
         &self,
         award_slug: &str,
     ) -> Result<Option<BadgeDefinitionRecord>, AppError> {
-        Ok(self.badge_definitions.borrow().get(award_slug).cloned())
+        Ok(self.definitions.borrow().get(award_slug).cloned())
     }
 
     async fn save_badge_definition(&self, record: &BadgeDefinitionRecord) -> Result<(), AppError> {
-        self.badge_definitions
+        self.definitions
             .borrow_mut()
             .insert(record.award_slug.clone(), record.clone());
         Ok(())
@@ -52,12 +86,11 @@ impl AwardRepository for FakeRepo {
 
     async fn upsert_award_run(&self, run: AwardRun) -> Result<AwardRun, AppError> {
         let key = (run.award_slug.clone(), run.period_key.clone());
-        let mut runs = self.runs.borrow_mut();
-        let current = runs.entry(key).or_insert(run);
-        Ok(current.clone())
+        Ok(self.runs.borrow_mut().entry(key).or_insert(run).clone())
     }
 
     async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError> {
+        self.operations.borrow_mut().push("save-award-run".into());
         self.runs.borrow_mut().insert(
             (run.award_slug.clone(), run.period_key.clone()),
             run.clone(),
@@ -84,157 +117,129 @@ impl AwardRepository for FakeRepo {
 
     async fn mark_fetch_failed(
         &self,
-        award_slug: &str,
-        period_key: &str,
-        error_message: &str,
+        slug: &str,
+        key: &str,
+        error: &str,
     ) -> Result<AwardRun, AppError> {
-        self.update_status(
-            award_slug,
-            period_key,
-            AwardRunStatus::FailedFetch,
-            Some(error_message),
-        )
+        self.update(slug, key, AwardRunStatus::FailedFetch, Some(error))
     }
 
     async fn mark_definition_failed(
         &self,
-        award_slug: &str,
-        period_key: &str,
-        error_message: &str,
+        slug: &str,
+        key: &str,
+        error: &str,
     ) -> Result<AwardRun, AppError> {
-        self.update_status(
-            award_slug,
-            period_key,
-            AwardRunStatus::FailedDefinition,
-            Some(error_message),
-        )
-    }
-
-    async fn mark_awarded(
-        &self,
-        award_slug: &str,
-        period_key: &str,
-        award_event_id: &str,
-    ) -> Result<AwardRun, AppError> {
-        let mut run = self.update_status(award_slug, period_key, AwardRunStatus::Awarded, None)?;
-        run.award_event_id = Some(award_event_id.to_string());
-        self.runs.borrow_mut().insert(
-            (award_slug.to_string(), period_key.to_string()),
-            run.clone(),
-        );
-        Ok(run)
+        self.update(slug, key, AwardRunStatus::FailedDefinition, Some(error))
     }
 
     async fn mark_award_failed(
         &self,
-        award_slug: &str,
-        period_key: &str,
-        error_message: &str,
+        slug: &str,
+        key: &str,
+        error: &str,
     ) -> Result<AwardRun, AppError> {
-        self.update_status(
-            award_slug,
-            period_key,
-            AwardRunStatus::FailedAward,
-            Some(error_message),
-        )
+        self.update(slug, key, AwardRunStatus::FailedAward, Some(error))
+    }
+
+    async fn mark_awarded(
+        &self,
+        slug: &str,
+        key: &str,
+        event_id: &str,
+    ) -> Result<AwardRun, AppError> {
+        let mut run = self.update(slug, key, AwardRunStatus::Awarded, None)?;
+        run.award_event_id = Some(event_id.into());
+        self.runs
+            .borrow_mut()
+            .insert((slug.into(), key.into()), run.clone());
+        Ok(run)
     }
 
     async fn mark_discord_pending(
         &self,
-        award_slug: &str,
-        period_key: &str,
-        error_message: &str,
+        slug: &str,
+        key: &str,
+        error: &str,
     ) -> Result<AwardRun, AppError> {
-        self.update_status(
-            award_slug,
-            period_key,
+        self.update(
+            slug,
+            key,
             AwardRunStatus::AwardedDiscordPending,
-            Some(error_message),
+            Some(error),
         )
     }
 
-    async fn mark_completed(
-        &self,
-        award_slug: &str,
-        period_key: &str,
-    ) -> Result<AwardRun, AppError> {
-        let mut run =
-            self.update_status(award_slug, period_key, AwardRunStatus::Completed, None)?;
+    async fn mark_completed(&self, slug: &str, key: &str) -> Result<AwardRun, AppError> {
+        let mut run = self.update(slug, key, AwardRunStatus::Completed, None)?;
         run.discord_message_sent = true;
-        self.runs.borrow_mut().insert(
-            (award_slug.to_string(), period_key.to_string()),
-            run.clone(),
-        );
+        self.runs
+            .borrow_mut()
+            .insert((slug.into(), key.into()), run.clone());
         Ok(run)
     }
 
-    async fn mark_skipped_inactive(
-        &self,
-        award_slug: &str,
-        period_key: &str,
-    ) -> Result<AwardRun, AppError> {
-        self.update_status(
-            award_slug,
-            period_key,
-            AwardRunStatus::SkippedInactive,
-            None,
-        )
+    async fn mark_skipped_inactive(&self, slug: &str, key: &str) -> Result<AwardRun, AppError> {
+        self.update(slug, key, AwardRunStatus::SkippedInactive, None)
     }
 }
 
-impl FakeRepo {
-    fn update_status(
-        &self,
-        award_slug: &str,
-        period_key: &str,
-        status: AwardRunStatus,
-        error_message: Option<&str>,
-    ) -> Result<AwardRun, AppError> {
-        let key = (award_slug.to_string(), period_key.to_string());
-        let mut runs = self.runs.borrow_mut();
-        let run = runs
-            .get_mut(&key)
-            .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        run.status = status;
-        run.error_message = error_message.map(ToString::to_string);
-        Ok(run.clone())
-    }
-}
-
-struct FakeLeaderboard {
-    creators: Vec<LeaderboardCreator>,
+#[derive(Default)]
+struct FakeCandidates {
+    candidates: Vec<DivinerCandidate>,
+    calls: RefCell<Vec<CandidateCall>>,
 }
 
 #[async_trait(?Send)]
-impl LeaderboardClient for FakeLeaderboard {
-    async fn ranked_creators(
+impl DivinerCandidatesClient for FakeCandidates {
+    async fn ranked_candidates(
         &self,
-        _period: &str,
-        candidate_window: usize,
-    ) -> Result<Vec<LeaderboardCreator>, AppError> {
-        Ok(self
-            .creators
-            .iter()
-            .take(candidate_window)
-            .cloned()
-            .collect())
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        limit: usize,
+    ) -> Result<Vec<DivinerCandidate>, AppError> {
+        self.calls.borrow_mut().push((start, end, limit));
+        Ok(self.candidates.clone())
     }
 }
 
+enum ActivityResult {
+    Found(CreatorLatestVideo),
+    Failed(String),
+}
+
+#[derive(Default)]
 struct FakeActivity {
-    latest_by_pubkey: HashMap<String, Option<CreatorLatestVideo>>,
+    latest: HashMap<String, ActivityResult>,
+    calls: RefCell<Vec<String>>,
 }
 
 #[async_trait(?Send)]
 impl CreatorActivityClient for FakeActivity {
     async fn latest_video(&self, pubkey: &str) -> Result<Option<CreatorLatestVideo>, AppError> {
-        Ok(self.latest_by_pubkey.get(pubkey).cloned().flatten())
+        self.calls.borrow_mut().push(pubkey.into());
+        match self.latest.get(pubkey) {
+            Some(ActivityResult::Found(video)) => Ok(Some(video.clone())),
+            Some(ActivityResult::Failed(error)) => Err(AppError::Api(error.clone())),
+            None => Ok(None),
+        }
     }
 }
 
-#[derive(Default)]
 struct FakePublisher {
-    publish_count: RefCell<usize>,
+    count: RefCell<usize>,
+    winners: RefCell<Vec<String>>,
+    operations: Rc<RefCell<Vec<String>>>,
+}
+
+impl FakePublisher {
+    fn new(operations: Rc<RefCell<Vec<String>>>) -> Self {
+        Self {
+            count: RefCell::new(0),
+            winners: RefCell::new(Vec::new()),
+            operations,
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -245,7 +250,10 @@ impl BadgePublisher for FakePublisher {
         _image_url: &str,
         _thumb_url: &str,
     ) -> Result<divine_badges::nostr::DefinitionPublishResult, AppError> {
-        *self.publish_count.borrow_mut() += 1;
+        *self.count.borrow_mut() += 1;
+        self.operations
+            .borrow_mut()
+            .push("publish-definition".into());
         Ok(divine_badges::nostr::DefinitionPublishResult {
             definition_event_id: format!("definition-{}", award.slug),
             definition_coordinate: format!("30009:issuerpubkey:{}", award.d_tag),
@@ -254,24 +262,26 @@ impl BadgePublisher for FakePublisher {
 
     async fn publish_award(
         &self,
-        _badge_coordinate: &str,
-        _winner_pubkey: &str,
+        _coordinate: &str,
+        pubkey: &str,
         _period_key: &str,
     ) -> Result<String, AppError> {
-        *self.publish_count.borrow_mut() += 1;
+        *self.count.borrow_mut() += 1;
+        self.winners.borrow_mut().push(pubkey.into());
+        self.operations.borrow_mut().push("publish-award".into());
         Ok("award-event-id".into())
     }
 }
 
 #[derive(Default)]
 struct FakeDiscord {
-    send_count: RefCell<usize>,
+    messages: RefCell<Vec<String>>,
 }
 
 #[async_trait(?Send)]
 impl DiscordClient for FakeDiscord {
-    async fn post_message(&self, _message: &str) -> Result<(), AppError> {
-        *self.send_count.borrow_mut() += 1;
+    async fn post_message(&self, message: &str) -> Result<(), AppError> {
+        self.messages.borrow_mut().push(message.into());
         Ok(())
     }
 }
@@ -287,52 +297,67 @@ fn config() -> AppConfig {
     }
 }
 
-fn fake_creator(pubkey: &str, display_name: &str, loops: f64) -> LeaderboardCreator {
-    LeaderboardCreator {
+fn candidate(pubkey: &str, display_name: &str, rank: u64) -> DivinerCandidate {
+    DivinerCandidate {
         pubkey: pubkey.into(),
-        display_name: display_name.into(),
         name: display_name.into(),
+        display_name: display_name.into(),
         nip05: None,
-        picture: String::new(),
-        loops,
-        views: loops.round() as i64,
-        unique_viewers: 1,
-        videos_with_views: 1,
+        picture: "https://cdn.divine.video/creator.png".into(),
+        views: 30,
+        unique_viewers: 20,
+        loops: 1.5,
+        videos_with_views: 2,
+        positive_reactors: 7,
+        distinct_commenters: 5,
+        distinct_reposters: 3,
+        distinct_positive_engagers: 10,
+        engagement_tier: 1,
+        engagement_rate: 0.5,
+        score: 88.25,
+        rank,
     }
 }
 
+fn video(year: i32, month: u32, day: u32, hour: u32) -> ActivityResult {
+    ActivityResult::Found(CreatorLatestVideo {
+        published_at: Utc.with_ymd_and_hms(year, month, day, hour, 0, 0).unwrap(),
+    })
+}
+
+async fn execute(
+    now: DateTime<Utc>,
+    repo: &FakeRepo,
+    candidates: &FakeCandidates,
+    activity: &FakeActivity,
+    publisher: &FakePublisher,
+    discord: &FakeDiscord,
+) -> Result<TickOutcome, AppError> {
+    run_award_tick(
+        now,
+        &config(),
+        repo,
+        candidates,
+        activity,
+        publisher,
+        discord,
+    )
+    .await
+}
+
 #[test]
-fn completed_run_skips_duplicate_award_publish() {
+fn passes_exact_closed_boundaries_and_window_to_ranked_candidates() {
     block_on(async {
         let repo = FakeRepo::default();
-        let award = award_for_period_kind("day").unwrap();
-        repo.insert_badge_definition_seed(&BadgeDefinitionRecord::from_award(
-            &award,
-            "https://cdn.divine.video/logo.png",
-        ))
-        .await
-        .unwrap();
-        repo.upsert_award_run(AwardRun::completed(
-            award.slug,
-            "2026-04-14",
-            "day",
-            "award-event-id",
-        ))
-        .await
-        .unwrap();
-
-        let leaderboard = FakeLeaderboard { creators: vec![] };
-        let activity = FakeActivity {
-            latest_by_pubkey: HashMap::new(),
-        };
-        let publisher = FakePublisher::default();
+        let candidates = FakeCandidates::default();
+        let activity = FakeActivity::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
         let discord = FakeDiscord::default();
 
-        let outcome = run_award_tick(
-            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
+        execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 18, 45, 0).unwrap(),
             &repo,
-            &leaderboard,
+            &candidates,
             &activity,
             &publisher,
             &discord,
@@ -340,47 +365,81 @@ fn completed_run_skips_duplicate_award_publish() {
         .await
         .unwrap();
 
-        assert_eq!(outcome.runs.len(), 1);
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(*publisher.publish_count.borrow(), 0);
-        assert_eq!(*discord.send_count.borrow(), 0);
+        assert_eq!(
+            candidates.calls.borrow().as_slice(),
+            &[(
+                Utc.with_ymd_and_hms(2026, 4, 14, 0, 0, 0).unwrap(),
+                Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap(),
+                10,
+            )]
+        );
     });
 }
 
 #[test]
-fn inactive_candidates_mark_run_skipped_without_publishing() {
+fn preserves_upstream_order_without_recomputing_scores() {
     block_on(async {
         let repo = FakeRepo::default();
-        let leaderboard = FakeLeaderboard {
-            creators: vec![
-                fake_creator("archivepubkey", "KingBach", 1100.0),
-                fake_creator("archivepubkey2", "ThomasSanders", 1000.0),
+        let mut first = candidate(FIRST, "first upstream", 1);
+        first.score = 1.0;
+        first.views = 1;
+        let mut second = candidate(SECOND, "higher metrics", 2);
+        second.score = 100.0;
+        second.views = 10_000;
+        let candidates = FakeCandidates {
+            candidates: vec![first, second],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(FIRST));
+        assert_eq!(activity.calls.borrow().as_slice(), &[FIRST]);
+        assert_eq!(publisher.winners.borrow().as_slice(), &[FIRST]);
+    });
+}
+
+#[test]
+fn skips_founder_and_inactive_candidate_then_awards_next_active_candidate() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![
+                candidate(FOUNDER, "founder", 1),
+                candidate(FIRST, "inactive", 2),
+                candidate(SECOND, "active", 3),
             ],
+            ..Default::default()
         };
         let activity = FakeActivity {
-            latest_by_pubkey: HashMap::from([
-                (
-                    "archivepubkey".into(),
-                    Some(CreatorLatestVideo {
-                        published_at: Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap(),
-                    }),
-                ),
-                (
-                    "archivepubkey2".into(),
-                    Some(CreatorLatestVideo {
-                        published_at: Utc.with_ymd_and_hms(2026, 1, 15, 12, 0, 0).unwrap(),
-                    }),
-                ),
+            latest: HashMap::from([
+                (FIRST.into(), video(2026, 1, 1, 0)),
+                (SECOND.into(), video(2026, 4, 14, 12)),
             ]),
+            ..Default::default()
         };
-        let publisher = FakePublisher::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
         let discord = FakeDiscord::default();
 
-        let outcome = run_award_tick(
+        let outcome = execute(
             Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
             &repo,
-            &leaderboard,
+            &candidates,
             &activity,
             &publisher,
             &discord,
@@ -388,50 +447,30 @@ fn inactive_candidates_mark_run_skipped_without_publishing() {
         .await
         .unwrap();
 
-        assert_eq!(outcome.runs.len(), 1);
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
-        assert_eq!(*publisher.publish_count.borrow(), 0);
-        assert_eq!(*discord.send_count.borrow(), 0);
+        assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(SECOND));
+        assert_eq!(activity.calls.borrow().as_slice(), &[FIRST, SECOND]);
     });
 }
 
 #[test]
-fn excluded_personnel_pubkey_does_not_receive_diviner_awards() {
+fn anchors_activity_to_period_end_instead_of_retry_tick() {
     block_on(async {
         let repo = FakeRepo::default();
-        let excluded_pubkey = DIVINER_AWARD_EXCLUDED_PUBKEYS[1];
-        let next_creator_pubkey =
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let leaderboard = FakeLeaderboard {
-            creators: vec![
-                fake_creator(excluded_pubkey, "excluded personnel", 900.0),
-                fake_creator(next_creator_pubkey, "next creator", 800.0),
-            ],
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "boundary creator", 1)],
+            ..Default::default()
         };
         let activity = FakeActivity {
-            latest_by_pubkey: HashMap::from([
-                (
-                    excluded_pubkey.into(),
-                    Some(CreatorLatestVideo {
-                        published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-                    }),
-                ),
-                (
-                    next_creator_pubkey.into(),
-                    Some(CreatorLatestVideo {
-                        published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-                    }),
-                ),
-            ]),
+            latest: HashMap::from([(FIRST.into(), video(2026, 3, 16, 12))]),
+            ..Default::default()
         };
-        let publisher = FakePublisher::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
         let discord = FakeDiscord::default();
 
-        let outcome = run_award_tick(
-            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 23, 55, 0).unwrap(),
             &repo,
-            &leaderboard,
+            &candidates,
             &activity,
             &publisher,
             &discord,
@@ -439,180 +478,32 @@ fn excluded_personnel_pubkey_does_not_receive_diviner_awards() {
         .await
         .unwrap();
 
-        assert_eq!(outcome.runs.len(), 1);
         assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(
-            outcome.runs[0].winner_pubkey.as_deref(),
-            Some(next_creator_pubkey)
-        );
-        assert_eq!(
-            outcome.runs[0].winner_display_name.as_deref(),
-            Some("next creator")
-        );
     });
 }
 
 #[test]
-fn excluded_personnel_pubkeys_do_not_shrink_candidate_window() {
+fn activity_failure_marks_failed_fetch_and_publishes_nothing() {
     block_on(async {
         let repo = FakeRepo::default();
-        let active_pubkey = "activepubkey";
-        let mut creators = DIVINER_AWARD_EXCLUDED_PUBKEYS
-            .iter()
-            .enumerate()
-            .map(|(index, pubkey)| {
-                fake_creator(pubkey, &format!("excluded creator {index}"), 1000.0)
-            })
-            .collect::<Vec<_>>();
-        let mut latest_by_pubkey = HashMap::new();
-
-        for pubkey in DIVINER_AWARD_EXCLUDED_PUBKEYS {
-            latest_by_pubkey.insert(
-                pubkey.into(),
-                Some(CreatorLatestVideo {
-                    published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-                }),
-            );
-        }
-
-        for index in 1..10 {
-            let pubkey = format!("inactivepubkey{index}");
-            creators.push(fake_creator(
-                &pubkey,
-                &format!("inactive creator {index}"),
-                1000.0 - index as f64,
-            ));
-            latest_by_pubkey.insert(
-                pubkey,
-                Some(CreatorLatestVideo {
-                    published_at: Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap(),
-                }),
-            );
-        }
-
-        creators.push(fake_creator(active_pubkey, "active creator", 900.0));
-        latest_by_pubkey.insert(
-            active_pubkey.into(),
-            Some(CreatorLatestVideo {
-                published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-            }),
-        );
-
-        let leaderboard = FakeLeaderboard { creators };
-        let activity = FakeActivity { latest_by_pubkey };
-        let publisher = FakePublisher::default();
-        let discord = FakeDiscord::default();
-
-        let outcome = run_award_tick(
-            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
-            &repo,
-            &leaderboard,
-            &activity,
-            &publisher,
-            &discord,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(outcome.runs.len(), 1);
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(
-            outcome.runs[0].winner_pubkey.as_deref(),
-            Some(active_pubkey)
-        );
-    });
-}
-
-#[test]
-fn candidate_window_stays_capped_when_excluded_pubkey_is_absent() {
-    block_on(async {
-        let repo = FakeRepo::default();
-        let active_pubkey = "activepubkey";
-        let mut creators = Vec::new();
-        let mut latest_by_pubkey = HashMap::new();
-
-        for index in 0..10 {
-            let pubkey = format!("inactivepubkey{index}");
-            creators.push(fake_creator(
-                &pubkey,
-                &format!("inactive creator {index}"),
-                1000.0 - index as f64,
-            ));
-            latest_by_pubkey.insert(
-                pubkey,
-                Some(CreatorLatestVideo {
-                    published_at: Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap(),
-                }),
-            );
-        }
-
-        creators.push(fake_creator(active_pubkey, "active creator", 900.0));
-        latest_by_pubkey.insert(
-            active_pubkey.into(),
-            Some(CreatorLatestVideo {
-                published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-            }),
-        );
-
-        let leaderboard = FakeLeaderboard { creators };
-        let activity = FakeActivity { latest_by_pubkey };
-        let publisher = FakePublisher::default();
-        let discord = FakeDiscord::default();
-
-        let outcome = run_award_tick(
-            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
-            &repo,
-            &leaderboard,
-            &activity,
-            &publisher,
-            &discord,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(outcome.runs.len(), 1);
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
-        assert_eq!(outcome.runs[0].winner_pubkey, None);
-        assert_eq!(*publisher.publish_count.borrow(), 0);
-        assert_eq!(*discord.send_count.borrow(), 0);
-    });
-}
-
-#[test]
-fn winning_run_persists_winner_nip05() {
-    block_on(async {
-        let repo = FakeRepo::default();
-        let leaderboard = FakeLeaderboard {
-            creators: vec![LeaderboardCreator {
-                pubkey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
-                display_name: "rabble".into(),
-                name: "rabble".into(),
-                nip05: Some("rabble@divine.video".into()),
-                picture: "https://cdn.divine.video/rabble.png".into(),
-                loops: 321.0,
-                views: 321,
-                unique_viewers: 12,
-                videos_with_views: 3,
-            }],
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "creator", 1)],
+            ..Default::default()
         };
         let activity = FakeActivity {
-            latest_by_pubkey: HashMap::from([(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
-                Some(CreatorLatestVideo {
-                    published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
-                }),
+            latest: HashMap::from([(
+                FIRST.into(),
+                ActivityResult::Failed("activity unavailable".into()),
             )]),
+            ..Default::default()
         };
-        let publisher = FakePublisher::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
         let discord = FakeDiscord::default();
 
-        let outcome = run_award_tick(
+        let outcome = execute(
             Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
-            &config(),
             &repo,
-            &leaderboard,
+            &candidates,
             &activity,
             &publisher,
             &discord,
@@ -620,49 +511,114 @@ fn winning_run_persists_winner_nip05() {
         .await
         .unwrap();
 
-        assert_eq!(outcome.runs.len(), 1);
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(
-            outcome.runs[0].winner_nip05.as_deref(),
-            Some("rabble@divine.video")
-        );
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::FailedFetch);
+        assert_eq!(*publisher.count.borrow(), 0);
+        assert!(discord.messages.borrow().is_empty());
     });
 }
 
 #[test]
-fn discord_pending_run_retries_only_discord() {
+fn duplicate_tick_returns_completed_before_refetch_or_republication() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let tick = Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap();
+
+        execute(tick, &repo, &candidates, &activity, &publisher, &discord)
+            .await
+            .unwrap();
+        let outcome = execute(tick, &repo, &candidates, &activity, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(candidates.calls.borrow().len(), 1);
+        assert_eq!(*publisher.count.borrow(), 2);
+        assert_eq!(discord.messages.borrow().len(), 1);
+    });
+}
+
+#[test]
+fn awarded_states_retry_discord_from_stored_receipt_only() {
+    block_on(async {
+        for status in [
+            AwardRunStatus::Awarded,
+            AwardRunStatus::AwardedDiscordPending,
+        ] {
+            let repo = FakeRepo::default();
+            let award = award_for_period_kind("day").unwrap();
+            let mut run = AwardRun::pending(award.slug, "2026-04-14", "day");
+            run.status = status;
+            run.winner_pubkey = Some(FIRST.into());
+            run.winner_display_name = Some("stored winner".into());
+            run.winner_nip05 = Some("winner@divine.video".into());
+            run.loops = Some(1.5);
+            run.views = Some(30);
+            run.unique_viewers = Some(20);
+            run.videos_with_views = Some(2);
+            run.positive_reactors = Some(7);
+            run.distinct_commenters = Some(5);
+            run.distinct_reposters = Some(3);
+            run.distinct_positive_engagers = Some(10);
+            run.engagement_tier = Some(1);
+            run.engagement_rate = Some(0.5);
+            run.score = Some(88.25);
+            run.award_event_id = Some("award-event-id".into());
+            repo.upsert_award_run(run).await.unwrap();
+            let candidates = FakeCandidates::default();
+            let activity = FakeActivity::default();
+            let publisher = FakePublisher::new(repo.operations.clone());
+            let discord = FakeDiscord::default();
+
+            let outcome = execute(
+                Utc.with_ymd_and_hms(2026, 4, 15, 1, 5, 0).unwrap(),
+                &repo,
+                &candidates,
+                &activity,
+                &publisher,
+                &discord,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+            assert!(candidates.calls.borrow().is_empty());
+            assert!(activity.calls.borrow().is_empty());
+            assert_eq!(*publisher.count.borrow(), 0);
+            assert_eq!(discord.messages.borrow().len(), 1);
+        }
+    });
+}
+
+#[test]
+fn discord_retry_falls_back_to_the_complete_stored_pubkey() {
     block_on(async {
         let repo = FakeRepo::default();
         let award = award_for_period_kind("day").unwrap();
-        repo.insert_badge_definition_seed(&BadgeDefinitionRecord::published(
-            &award,
-            "https://cdn.divine.video/logo.png",
-            "definition-id",
-            "30009:issuerpubkey:diviner-of-the-day",
-        ))
-        .await
-        .unwrap();
         let mut run = AwardRun::pending(award.slug, "2026-04-14", "day");
         run.status = AwardRunStatus::AwardedDiscordPending;
-        run.winner_pubkey = Some("winnerpubkey".into());
-        run.winner_display_name = Some("winner".into());
-        run.winner_nip05 = Some("winner@divine.video".into());
-        run.loops = Some(136.0);
+        run.winner_pubkey = Some(FIRST.into());
+        run.loops = Some(1.5);
         run.award_event_id = Some("award-event-id".into());
         repo.upsert_award_run(run).await.unwrap();
-
-        let leaderboard = FakeLeaderboard { creators: vec![] };
-        let activity = FakeActivity {
-            latest_by_pubkey: HashMap::new(),
-        };
-        let publisher = FakePublisher::default();
+        let candidates = FakeCandidates::default();
+        let activity = FakeActivity::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
         let discord = FakeDiscord::default();
 
-        let outcome = run_award_tick(
+        execute(
             Utc.with_ymd_and_hms(2026, 4, 15, 1, 5, 0).unwrap(),
-            &config(),
             &repo,
-            &leaderboard,
+            &candidates,
             &activity,
             &publisher,
             &discord,
@@ -670,9 +626,294 @@ fn discord_pending_run_retries_only_discord() {
         .await
         .unwrap();
 
-        assert_eq!(outcome.runs.len(), 1);
+        assert!(discord.messages.borrow()[0].contains(FIRST));
+    });
+}
+
+#[test]
+fn all_zero_candidate_still_wins() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut zero = candidate(FIRST, "zero engagement", 1);
+        zero.views = 0;
+        zero.unique_viewers = 0;
+        zero.loops = 0.0;
+        zero.videos_with_views = 0;
+        zero.positive_reactors = 0;
+        zero.distinct_commenters = 0;
+        zero.distinct_reposters = 0;
+        zero.distinct_positive_engagers = 0;
+        zero.engagement_tier = 0;
+        zero.engagement_rate = 0.0;
+        zero.score = 0.0;
+        let candidates = FakeCandidates {
+            candidates: vec![zero],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
         assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(*publisher.publish_count.borrow(), 0);
-        assert_eq!(*discord.send_count.borrow(), 1);
+        assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(FIRST));
+    });
+}
+
+#[test]
+fn empty_and_fully_ineligible_fake_results_are_skipped() {
+    block_on(async {
+        for list in [Vec::new(), vec![candidate(FOUNDER, "founder", 1)]] {
+            let repo = FakeRepo::default();
+            let candidates = FakeCandidates {
+                candidates: list,
+                ..Default::default()
+            };
+            let activity = FakeActivity::default();
+            let publisher = FakePublisher::new(repo.operations.clone());
+            let discord = FakeDiscord::default();
+
+            let outcome = execute(
+                Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+                &repo,
+                &candidates,
+                &activity,
+                &publisher,
+                &discord,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
+            assert_eq!(*publisher.count.borrow(), 0);
+        }
+    });
+}
+
+#[test]
+fn all_inactive_candidates_are_skipped_without_publication() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![
+                candidate(FIRST, "inactive one", 1),
+                candidate(SECOND, "inactive two", 2),
+            ],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([
+                (FIRST.into(), video(2026, 1, 1, 0)),
+                (SECOND.into(), video(2026, 2, 1, 0)),
+            ]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::SkippedInactive);
+        assert_eq!(*publisher.count.borrow(), 0);
+        assert!(discord.messages.borrow().is_empty());
+    });
+}
+
+#[test]
+fn saves_complete_score_receipt_before_nostr_publication() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut winner = candidate(FIRST, "receipt winner", 1);
+        winner.name = "winner name".into();
+        winner.nip05 = Some("winner@divine.video".into());
+        winner.picture = "https://cdn.divine.video/winner.png".into();
+        let candidates = FakeCandidates {
+            candidates: vec![winner],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        let run = &outcome.runs[0];
+        assert_eq!(run.winner_pubkey.as_deref(), Some(FIRST));
+        assert_eq!(run.winner_display_name.as_deref(), Some("receipt winner"));
+        assert_eq!(run.winner_name.as_deref(), Some("winner name"));
+        assert_eq!(run.winner_nip05.as_deref(), Some("winner@divine.video"));
+        assert_eq!(
+            run.winner_picture.as_deref(),
+            Some("https://cdn.divine.video/winner.png")
+        );
+        assert_eq!(run.loops, Some(1.5));
+        assert_eq!(run.views, Some(30));
+        assert_eq!(run.unique_viewers, Some(20));
+        assert_eq!(run.videos_with_views, Some(2));
+        assert_eq!(run.positive_reactors, Some(7));
+        assert_eq!(run.distinct_commenters, Some(5));
+        assert_eq!(run.distinct_reposters, Some(3));
+        assert_eq!(run.distinct_positive_engagers, Some(10));
+        assert_eq!(run.engagement_tier, Some(1));
+        assert_eq!(run.engagement_rate, Some(0.5));
+        assert_eq!(run.score, Some(88.25));
+        let operations = repo.operations.borrow();
+        let saved = operations
+            .iter()
+            .position(|value| value == "save-award-run")
+            .unwrap();
+        let published = operations
+            .iter()
+            .position(|value| value == "publish-definition")
+            .unwrap();
+        assert!(saved < published);
+    });
+}
+
+#[test]
+fn accepts_js_safe_boundary_and_preserves_full_pubkey_fallback() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut winner = candidate(FIRST, "", 1);
+        winner.name.clear();
+        winner.views = JS_SAFE_MAX;
+        winner.unique_viewers = JS_SAFE_MAX;
+        winner.videos_with_views = JS_SAFE_MAX;
+        winner.positive_reactors = JS_SAFE_MAX;
+        winner.distinct_commenters = JS_SAFE_MAX;
+        winner.distinct_reposters = JS_SAFE_MAX;
+        winner.distinct_positive_engagers = JS_SAFE_MAX;
+        let candidates = FakeCandidates {
+            candidates: vec![winner],
+            ..Default::default()
+        };
+        let activity = FakeActivity {
+            latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+            &repo,
+            &candidates,
+            &activity,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        let run = &outcome.runs[0];
+        assert_eq!(run.winner_display_name.as_deref(), Some(FIRST));
+        for value in [
+            run.views,
+            run.unique_viewers,
+            run.videos_with_views,
+            run.positive_reactors,
+            run.distinct_commenters,
+            run.distinct_reposters,
+            run.distinct_positive_engagers,
+        ] {
+            assert_eq!(value, Some(JS_SAFE_MAX as i64));
+        }
+        assert_eq!(run.engagement_tier, Some(1));
+    });
+}
+
+#[test]
+fn rejects_every_counter_above_js_safe_boundary_without_publication() {
+    block_on(async {
+        for field in [
+            "views",
+            "unique_viewers",
+            "videos_with_views",
+            "positive_reactors",
+            "distinct_commenters",
+            "distinct_reposters",
+            "distinct_positive_engagers",
+        ] {
+            let repo = FakeRepo::default();
+            let mut winner = candidate(FIRST, "overflow", 1);
+            match field {
+                "views" => winner.views = JS_SAFE_MAX + 1,
+                "unique_viewers" => winner.unique_viewers = JS_SAFE_MAX + 1,
+                "videos_with_views" => winner.videos_with_views = JS_SAFE_MAX + 1,
+                "positive_reactors" => winner.positive_reactors = JS_SAFE_MAX + 1,
+                "distinct_commenters" => winner.distinct_commenters = JS_SAFE_MAX + 1,
+                "distinct_reposters" => winner.distinct_reposters = JS_SAFE_MAX + 1,
+                "distinct_positive_engagers" => winner.distinct_positive_engagers = JS_SAFE_MAX + 1,
+                _ => unreachable!(),
+            }
+            let candidates = FakeCandidates {
+                candidates: vec![winner],
+                ..Default::default()
+            };
+            let activity = FakeActivity {
+                latest: HashMap::from([(FIRST.into(), video(2026, 4, 14, 12))]),
+                ..Default::default()
+            };
+            let publisher = FakePublisher::new(repo.operations.clone());
+            let discord = FakeDiscord::default();
+
+            let outcome = execute(
+                Utc.with_ymd_and_hms(2026, 4, 15, 0, 5, 0).unwrap(),
+                &repo,
+                &candidates,
+                &activity,
+                &publisher,
+                &discord,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                outcome.runs[0].status,
+                AwardRunStatus::FailedFetch,
+                "{field}"
+            );
+            assert!(outcome.runs[0]
+                .error_message
+                .as_deref()
+                .unwrap()
+                .contains(field));
+            assert_eq!(*publisher.count.borrow(), 0, "{field}");
+            assert!(discord.messages.borrow().is_empty(), "{field}");
+        }
     });
 }

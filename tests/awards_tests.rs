@@ -237,7 +237,7 @@ fn divine_api_rejects_empty_response_with_exact_bounds() {
     ))
     .unwrap_err();
 
-    assert!(matches!(error, AppError::EmptyLeaderboard(_)));
+    assert!(matches!(error, AppError::EmptyCandidates(_)));
     assert!(error.to_string().contains("2026-08-21T00:00:00Z"));
     assert!(error.to_string().contains("2026-08-22T00:00:00Z"));
 }

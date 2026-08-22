@@ -1,6 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 
-use crate::models::{CreatorLatestVideo, LeaderboardCreator};
+use crate::models::{CreatorLatestVideo, DivinerCandidate};
 
 // Divine personnel accounts; Diviner awards should go to community creators, not the team.
 pub const DIVINER_AWARD_EXCLUDED_PUBKEYS: [&str; 10] = [
@@ -30,9 +30,9 @@ pub fn select_first_active_creator<'a, I, F>(
     now: DateTime<Utc>,
     ranked: I,
     mut load_latest_video: F,
-) -> Option<&'a LeaderboardCreator>
+) -> Option<&'a DivinerCandidate>
 where
-    I: IntoIterator<Item = &'a LeaderboardCreator>,
+    I: IntoIterator<Item = &'a DivinerCandidate>,
     F: FnMut(&str) -> Option<CreatorLatestVideo>,
 {
     ranked.into_iter().find(|creator| {

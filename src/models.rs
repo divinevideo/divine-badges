@@ -154,42 +154,6 @@ impl DivinerCandidate {
     }
 }
 
-/// Temporary compatibility response for the rolling leaderboard call sites.
-/// Remove with the exact-boundary selection migration in Task 11.
-#[derive(Debug, Clone, Deserialize)]
-pub struct LeaderboardResponse {
-    pub period: String,
-    pub entries: Vec<LeaderboardCreator>,
-}
-
-/// Temporary compatibility candidate for the rolling leaderboard call sites.
-/// Remove with the exact-boundary selection migration in Task 11.
-#[derive(Debug, Clone, Deserialize)]
-pub struct LeaderboardCreator {
-    pub pubkey: String,
-    pub display_name: String,
-    pub name: String,
-    #[serde(default)]
-    pub nip05: Option<String>,
-    pub picture: String,
-    pub loops: f64,
-    pub views: i64,
-    pub unique_viewers: i64,
-    pub videos_with_views: i64,
-}
-
-impl LeaderboardCreator {
-    pub fn best_display_name(&self) -> String {
-        if !self.display_name.trim().is_empty() {
-            self.display_name.clone()
-        } else if !self.name.trim().is_empty() {
-            self.name.clone()
-        } else {
-            self.pubkey.clone()
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreatorLatestVideo {
     pub published_at: DateTime<Utc>,

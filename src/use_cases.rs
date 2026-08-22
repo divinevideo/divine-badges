@@ -1,14 +1,12 @@
 use crate::awards::award_for_period_kind;
 use crate::config::AppConfig;
 use crate::discord::build_announcement_message;
-use crate::eligibility::{
-    is_active_creator, is_diviner_award_excluded_creator, DIVINER_AWARD_EXCLUDED_PUBKEYS,
-};
+use crate::eligibility::{is_active_creator, is_diviner_award_excluded_creator};
 use crate::error::AppError;
-use crate::models::{AwardRun, BadgeDefinitionRecord};
+use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
 use crate::period::closed_periods_for_tick;
 use crate::ports::{
-    AwardRepository, BadgePublisher, CreatorActivityClient, DiscordClient, LeaderboardClient,
+    AwardRepository, BadgePublisher, CreatorActivityClient, DiscordClient, DivinerCandidatesClient,
 };
 use crate::state::AwardRunStatus;
 use chrono::{DateTime, Utc};
@@ -24,14 +22,14 @@ pub async fn run_award_tick<R, L, A, P, D>(
     now: DateTime<Utc>,
     config: &AppConfig,
     repository: &R,
-    leaderboard: &L,
+    candidates: &L,
     activity: &A,
     publisher: &P,
     discord: &D,
 ) -> Result<TickOutcome, AppError>
 where
     R: AwardRepository,
-    L: LeaderboardClient,
+    L: DivinerCandidatesClient,
     A: CreatorActivityClient,
     P: BadgePublisher,
     D: DiscordClient,
@@ -63,11 +61,8 @@ where
             continue;
         }
 
-        let ranked = match leaderboard
-            .ranked_creators(
-                period.kind,
-                CANDIDATE_WINDOW + DIVINER_AWARD_EXCLUDED_PUBKEYS.len(),
-            )
+        let ranked = match candidates
+            .ranked_candidates(period.start, period.end, CANDIDATE_WINDOW)
             .await
         {
             Ok(creators) => creators,
@@ -82,11 +77,11 @@ where
         };
 
         let mut winner = None;
-        for creator in ranked
-            .into_iter()
-            .filter(|creator| !is_diviner_award_excluded_creator(&creator.pubkey))
-            .take(CANDIDATE_WINDOW)
-        {
+        for creator in ranked {
+            if is_diviner_award_excluded_creator(&creator.pubkey) {
+                continue;
+            }
+
             let latest_video = match activity.latest_video(&creator.pubkey).await {
                 Ok(video) => video,
                 Err(err) => {
@@ -102,7 +97,7 @@ where
 
             if latest_video
                 .as_ref()
-                .map(|video| is_active_creator(now, video))
+                .map(|video| is_active_creator(period.end, video))
                 .unwrap_or(false)
             {
                 winner = Some(creator);
@@ -126,9 +121,18 @@ where
             continue;
         };
 
-        repository
-            .save_award_run(&enrich_run_with_winner(run, &winner))
-            .await?;
+        let enriched_run = match enrich_run_with_winner(run, &winner) {
+            Ok(run) => run,
+            Err(err) => {
+                runs.push(
+                    repository
+                        .mark_fetch_failed(award.slug, &period.key, &err.to_string())
+                        .await?,
+                );
+                continue;
+            }
+        };
+        repository.save_award_run(&enriched_run).await?;
 
         let badge_definition = repository
             .load_badge_definition(award.slug)
@@ -211,18 +215,47 @@ where
 
 fn enrich_run_with_winner(
     mut run: AwardRun,
-    winner: &crate::models::LeaderboardCreator,
-) -> AwardRun {
+    winner: &DivinerCandidate,
+) -> Result<AwardRun, AppError> {
     run.winner_pubkey = Some(winner.pubkey.clone());
     run.winner_display_name = Some(winner.best_display_name());
     run.winner_name = Some(winner.name.clone());
     run.winner_nip05 = winner.nip05.clone();
     run.winner_picture = Some(winner.picture.clone());
     run.loops = Some(winner.loops);
-    run.views = Some(winner.views);
-    run.unique_viewers = Some(winner.unique_viewers);
-    run.videos_with_views = Some(winner.videos_with_views);
-    run
+    run.views = Some(js_safe_i64("views", winner.views)?);
+    run.unique_viewers = Some(js_safe_i64("unique_viewers", winner.unique_viewers)?);
+    run.videos_with_views = Some(js_safe_i64("videos_with_views", winner.videos_with_views)?);
+    run.positive_reactors = Some(js_safe_i64("positive_reactors", winner.positive_reactors)?);
+    run.distinct_commenters = Some(js_safe_i64(
+        "distinct_commenters",
+        winner.distinct_commenters,
+    )?);
+    run.distinct_reposters = Some(js_safe_i64(
+        "distinct_reposters",
+        winner.distinct_reposters,
+    )?);
+    run.distinct_positive_engagers = Some(js_safe_i64(
+        "distinct_positive_engagers",
+        winner.distinct_positive_engagers,
+    )?);
+    run.engagement_tier = Some(i64::from(winner.engagement_tier));
+    run.engagement_rate = Some(winner.engagement_rate);
+    run.score = Some(winner.score);
+    Ok(run)
+}
+
+const JS_SAFE_INTEGER_MAX: u64 = 9_007_199_254_740_991;
+
+fn js_safe_i64(field: &str, value: u64) -> Result<i64, AppError> {
+    if value > JS_SAFE_INTEGER_MAX {
+        return Err(AppError::Api(format!(
+            "Diviner candidate {field} exceeds the D1 exact integer maximum {JS_SAFE_INTEGER_MAX}"
+        )));
+    }
+
+    i64::try_from(value)
+        .map_err(|_| AppError::Api(format!("Diviner candidate {field} is out of range")))
 }
 
 async fn retry_discord_only<R, D>(
@@ -244,7 +277,7 @@ where
         .winner_display_name
         .clone()
         .or_else(|| run.winner_name.clone())
-        .unwrap_or_else(|| winner_pubkey.chars().take(8).collect());
+        .unwrap_or_else(|| winner_pubkey.clone());
     let message = build_announcement_message(
         award.badge_name,
         &winner_display,
