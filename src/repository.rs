@@ -1,3 +1,18 @@
+use crate::models::AwardRun;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AwardRunSqlValue {
+    Null,
+    Text(String),
+    Integer(i64),
+    Real(f64),
+}
+
+pub fn is_d1_safe_integer(value: i64) -> bool {
+    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+    (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&value)
+}
+
 pub fn award_run_unique_index_sql() -> &'static str {
     "CREATE UNIQUE INDEX award_runs_award_slug_period_key_idx ON award_runs (award_slug, period_key);"
 }
@@ -7,7 +22,98 @@ pub fn save_badge_definition_sql() -> &'static str {
 }
 
 pub fn recent_completed_runs_sql() -> &'static str {
-    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND status = 'completed' ORDER BY period_key DESC LIMIT ?2"
+    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND status = 'completed' ORDER BY period_key DESC LIMIT ?2"
+}
+
+pub fn award_run_by_key_sql() -> &'static str {
+    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2"
+}
+
+pub fn upsert_award_run_sql() -> &'static str {
+    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25) ON CONFLICT(award_slug, period_key) DO NOTHING"
+}
+
+pub fn save_award_run_sql() -> &'static str {
+    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, award_event_id = ?18, discord_message_sent = ?19, status = ?20, error_message = ?21, updated_at = ?22 WHERE award_slug = ?23 AND period_key = ?24"
+}
+
+pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
+    vec![
+        text(&run.award_slug),
+        text(&run.period_key),
+        text(&run.period_type),
+        optional_text(&run.winner_pubkey),
+        optional_text(&run.winner_display_name),
+        optional_text(&run.winner_name),
+        optional_text(&run.winner_nip05),
+        optional_text(&run.winner_picture),
+        optional_real(run.loops),
+        optional_integer(run.views),
+        optional_integer(run.unique_viewers),
+        optional_integer(run.videos_with_views),
+        optional_integer(run.positive_reactors),
+        optional_integer(run.distinct_commenters),
+        optional_integer(run.distinct_reposters),
+        optional_integer(run.distinct_positive_engagers),
+        optional_integer(run.engagement_tier),
+        optional_real(run.engagement_rate),
+        optional_real(run.score),
+        optional_text(&run.award_event_id),
+        AwardRunSqlValue::Integer(i64::from(run.discord_message_sent)),
+        text(run.status.as_str()),
+        optional_text(&run.error_message),
+        text(now),
+        text(now),
+    ]
+}
+
+pub fn award_run_update_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
+    vec![
+        text(&run.period_type),
+        optional_text(&run.winner_pubkey),
+        optional_text(&run.winner_display_name),
+        optional_text(&run.winner_name),
+        optional_text(&run.winner_nip05),
+        optional_text(&run.winner_picture),
+        optional_real(run.loops),
+        optional_integer(run.views),
+        optional_integer(run.unique_viewers),
+        optional_integer(run.videos_with_views),
+        optional_integer(run.positive_reactors),
+        optional_integer(run.distinct_commenters),
+        optional_integer(run.distinct_reposters),
+        optional_integer(run.distinct_positive_engagers),
+        optional_integer(run.engagement_tier),
+        optional_real(run.engagement_rate),
+        optional_real(run.score),
+        optional_text(&run.award_event_id),
+        AwardRunSqlValue::Integer(i64::from(run.discord_message_sent)),
+        text(run.status.as_str()),
+        optional_text(&run.error_message),
+        text(now),
+        text(&run.award_slug),
+        text(&run.period_key),
+    ]
+}
+
+fn text(value: &str) -> AwardRunSqlValue {
+    AwardRunSqlValue::Text(value.to_string())
+}
+
+fn optional_text(value: &Option<String>) -> AwardRunSqlValue {
+    value.as_deref().map(text).unwrap_or(AwardRunSqlValue::Null)
+}
+
+fn optional_integer(value: Option<i64>) -> AwardRunSqlValue {
+    value
+        .map(AwardRunSqlValue::Integer)
+        .unwrap_or(AwardRunSqlValue::Null)
+}
+
+fn optional_real(value: Option<f64>) -> AwardRunSqlValue {
+    value
+        .map(AwardRunSqlValue::Real)
+        .unwrap_or(AwardRunSqlValue::Null)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -21,6 +127,7 @@ mod d1_repository {
     use crate::error::AppError;
     use crate::models::{AwardRun, BadgeDefinitionRecord};
     use crate::ports::AwardRepository;
+    use crate::repository::AwardRunSqlValue;
     use crate::state::AwardRunStatus;
 
     #[derive(Debug)]
@@ -54,6 +161,13 @@ mod d1_repository {
         views: Option<i64>,
         unique_viewers: Option<i64>,
         videos_with_views: Option<i64>,
+        positive_reactors: Option<i64>,
+        distinct_commenters: Option<i64>,
+        distinct_reposters: Option<i64>,
+        distinct_positive_engagers: Option<i64>,
+        engagement_tier: Option<i64>,
+        engagement_rate: Option<f64>,
+        score: Option<f64>,
         award_event_id: Option<String>,
         discord_message_sent: i64,
         status: String,
@@ -72,9 +186,7 @@ mod d1_repository {
         ) -> Result<Option<AwardRun>, AppError> {
             let statement = self
                 .db
-                .prepare(
-                    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2",
-                )
+                .prepare(crate::repository::award_run_by_key_sql())
                 .bind(&[JsValue::from_str(award_slug), JsValue::from_str(period_key)])
                 .map_err(repository_error)?;
 
@@ -152,30 +264,11 @@ mod d1_repository {
 
         async fn upsert_award_run(&self, run: AwardRun) -> Result<AwardRun, AppError> {
             let now = now_string();
+            let bindings =
+                award_run_bindings_as_js(crate::repository::award_run_insert_bindings(&run, &now))?;
             self.db
-                .prepare(
-                    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, award_event_id, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) ON CONFLICT(award_slug, period_key) DO NOTHING",
-                )
-                .bind(&[
-                    JsValue::from_str(&run.award_slug),
-                    JsValue::from_str(&run.period_key),
-                    JsValue::from_str(&run.period_type),
-                    option_string(&run.winner_pubkey),
-                    option_string(&run.winner_display_name),
-                    option_string(&run.winner_name),
-                    option_string(&run.winner_nip05),
-                    option_string(&run.winner_picture),
-                    option_f64(run.loops),
-                    option_i64(run.views),
-                    option_i64(run.unique_viewers),
-                    option_i64(run.videos_with_views),
-                    option_string(&run.award_event_id),
-                    bool_as_js(run.discord_message_sent),
-                    JsValue::from_str(run.status.as_str()),
-                    option_string(&run.error_message),
-                    JsValue::from_str(&now),
-                    JsValue::from_str(&now),
-                ])
+                .prepare(crate::repository::upsert_award_run_sql())
+                .bind(&bindings)
                 .map_err(repository_error)?
                 .run()
                 .await
@@ -188,29 +281,11 @@ mod d1_repository {
 
         async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError> {
             let now = now_string();
+            let bindings =
+                award_run_bindings_as_js(crate::repository::award_run_update_bindings(run, &now))?;
             self.db
-                .prepare(
-                    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, award_event_id = ?11, discord_message_sent = ?12, status = ?13, error_message = ?14, updated_at = ?15 WHERE award_slug = ?16 AND period_key = ?17",
-                )
-                .bind(&[
-                    JsValue::from_str(&run.period_type),
-                    option_string(&run.winner_pubkey),
-                    option_string(&run.winner_display_name),
-                    option_string(&run.winner_name),
-                    option_string(&run.winner_nip05),
-                    option_string(&run.winner_picture),
-                    option_f64(run.loops),
-                    option_i64(run.views),
-                    option_i64(run.unique_viewers),
-                    option_i64(run.videos_with_views),
-                    option_string(&run.award_event_id),
-                    bool_as_js(run.discord_message_sent),
-                    JsValue::from_str(run.status.as_str()),
-                    option_string(&run.error_message),
-                    JsValue::from_str(&now),
-                    JsValue::from_str(&run.award_slug),
-                    JsValue::from_str(&run.period_key),
-                ])
+                .prepare(crate::repository::save_award_run_sql())
+                .bind(&bindings)
                 .map_err(repository_error)?
                 .run()
                 .await
@@ -428,6 +503,13 @@ mod d1_repository {
                 views: value.views,
                 unique_viewers: value.unique_viewers,
                 videos_with_views: value.videos_with_views,
+                positive_reactors: value.positive_reactors,
+                distinct_commenters: value.distinct_commenters,
+                distinct_reposters: value.distinct_reposters,
+                distinct_positive_engagers: value.distinct_positive_engagers,
+                engagement_tier: value.engagement_tier,
+                engagement_rate: value.engagement_rate,
+                score: value.score,
                 award_event_id: value.award_event_id,
                 discord_message_sent: value.discord_message_sent != 0,
                 status: AwardRunStatus::from_str(&value.status).ok_or_else(|| {
@@ -453,14 +535,24 @@ mod d1_repository {
         value.map(JsValue::from_str).unwrap_or(JsValue::NULL)
     }
 
-    fn option_f64(value: Option<f64>) -> JsValue {
-        value.map(JsValue::from_f64).unwrap_or(JsValue::NULL)
-    }
-
-    fn option_i64(value: Option<i64>) -> JsValue {
-        value
-            .map(|value| JsValue::from_f64(value as f64))
-            .unwrap_or(JsValue::NULL)
+    fn award_run_bindings_as_js(values: Vec<AwardRunSqlValue>) -> Result<Vec<JsValue>, AppError> {
+        values
+            .into_iter()
+            .map(|value| match value {
+                AwardRunSqlValue::Null => Ok(JsValue::NULL),
+                AwardRunSqlValue::Text(value) => Ok(JsValue::from_str(&value)),
+                AwardRunSqlValue::Real(value) => Ok(JsValue::from_f64(value)),
+                AwardRunSqlValue::Integer(value) => {
+                    if crate::repository::is_d1_safe_integer(value) {
+                        Ok(JsValue::from_f64(value as f64))
+                    } else {
+                        Err(AppError::Repository(format!(
+                            "integer value {value} cannot be represented exactly by a D1 JavaScript binding"
+                        )))
+                    }
+                }
+            })
+            .collect()
     }
 
     fn bool_as_js(value: bool) -> JsValue {
