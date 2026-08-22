@@ -7,6 +7,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
+use divine_badges::divine_api::ranked_candidates_for_period;
 use divine_badges::error::AppError;
 use divine_badges::models::{
     AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate,
@@ -1791,6 +1792,121 @@ fn persists_the_complete_winner_receipt_before_preparing_or_publishing() {
             .position(|value| value == "claim-prepared")
             .unwrap();
         assert!(receipt < prepared);
+    });
+}
+
+#[test]
+fn captured_response_persists_and_reuses_the_engaged_winner_receipt_on_discord_retry() {
+    block_on(async {
+        const ENGAGED: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        const ZERO_ENGAGEMENT: &str =
+            "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+        let body = format!(
+            r#"{{
+              "start": "2026-04-14T00:00:00Z",
+              "end": "2026-04-15T00:00:00Z",
+              "entries": [
+                {{
+                  "pubkey": "{ENGAGED}",
+                  "name": "ada",
+                  "display_name": "Ada",
+                  "nip05": "ada@divine.video",
+                  "picture": "https://cdn.divine.video/ada.png",
+                  "latest_eligible_publication_at": "2026-04-14T12:00:00Z",
+                  "views": 120,
+                  "unique_viewers": 80,
+                  "loops": 1.5,
+                  "videos_with_views": 2,
+                  "positive_reactors": 42,
+                  "distinct_commenters": 9,
+                  "distinct_reposters": 7,
+                  "distinct_positive_engagers": 50,
+                  "engagement_tier": 1,
+                  "engagement_rate": 0.625,
+                  "score": 91.25,
+                  "rank": 1
+                }},
+                {{
+                  "pubkey": "{ZERO_ENGAGEMENT}",
+                  "name": "reach-only",
+                  "display_name": "Reach Only",
+                  "nip05": null,
+                  "picture": "",
+                  "latest_eligible_publication_at": "2026-04-14T10:00:00Z",
+                  "views": 12000,
+                  "unique_viewers": 9000,
+                  "loops": 1.75,
+                  "videos_with_views": 8,
+                  "positive_reactors": 0,
+                  "distinct_commenters": 0,
+                  "distinct_reposters": 0,
+                  "distinct_positive_engagers": 0,
+                  "engagement_tier": 0,
+                  "engagement_rate": 0.0,
+                  "score": 19.75,
+                  "rank": 2
+                }}
+              ]
+            }}"#
+        );
+        let start = Utc.with_ymd_and_hms(2026, 4, 14, 0, 0, 0).unwrap();
+        let ranked = ranked_candidates_for_period(
+            |_| Ok((200, body)),
+            "https://api.divine.video",
+            start,
+            period_end(),
+            10,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(ranked[0].pubkey, ENGAGED);
+        assert_eq!(ranked[0].engagement_tier, 1);
+        assert!(ranked[0].views < ranked[1].views);
+        assert_eq!(ranked[1].engagement_tier, 0);
+
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: ranked,
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        *discord.failure.borrow_mut() = Some("webhook unavailable".into());
+
+        let first_attempt = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+        let stored = &first_attempt.runs[0];
+        assert_eq!(stored.status, AwardRunStatus::AwardedDiscordPending);
+        assert_eq!(stored.winner_pubkey.as_deref(), Some(ENGAGED));
+        assert_eq!(stored.positive_reactors, Some(42));
+        assert_eq!(stored.distinct_commenters, Some(9));
+        assert_eq!(stored.distinct_reposters, Some(7));
+        assert_eq!(stored.distinct_positive_engagers, Some(50));
+        assert_eq!(stored.engagement_tier, Some(1));
+        assert_eq!(stored.engagement_rate, Some(0.625));
+        assert_eq!(stored.score, Some(91.25));
+        assert_eq!(publisher.published_awards.borrow()[0].tags[1][1], ENGAGED);
+
+        *discord.failure.borrow_mut() = None;
+        let retried = execute(
+            tick() + Duration::minutes(1),
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        let expected_message = "Diviner of the Day: Ada — 42 positive reactors, 9 commenters, 7 reposts, and 80 unique viewers.\nhttps://ada.divine.video".to_string();
+        assert_eq!(retried.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(candidates.calls.borrow().len(), 1);
+        assert_eq!(
+            discord.messages.borrow().as_slice(),
+            &[expected_message.clone(), expected_message]
+        );
     });
 }
 
