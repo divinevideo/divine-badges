@@ -11,6 +11,7 @@ use crate::state::AwardRunStatus;
 use chrono::{DateTime, Utc};
 
 const CANDIDATE_WINDOW: usize = 10;
+const DISCORD_DELIVERY_LEASE: chrono::Duration = chrono::Duration::minutes(5);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TickOutcome {
@@ -48,9 +49,11 @@ where
         }
         if matches!(
             run.status,
-            AwardRunStatus::Awarded | AwardRunStatus::AwardedDiscordPending
+            AwardRunStatus::Awarded
+                | AwardRunStatus::DiscordSending
+                | AwardRunStatus::AwardedDiscordPending
         ) {
-            runs.push(retry_discord_only(&award, config, repository, discord, run).await?);
+            runs.push(deliver_discord(now, &award, config, repository, discord, run).await?);
             continue;
         }
 
@@ -204,15 +207,7 @@ where
         run = repository
             .mark_awarded(award.slug, &period.key, &published_event_id)
             .await?;
-        let message = announcement_message(&award, config, &run)?;
-        match discord.post_message(&message).await {
-            Ok(()) => runs.push(repository.mark_completed(award.slug, &period.key).await?),
-            Err(err) => runs.push(
-                repository
-                    .mark_discord_pending(award.slug, &period.key, &err.to_string())
-                    .await?,
-            ),
-        }
+        runs.push(deliver_discord(now, &award, config, repository, discord, run).await?);
     }
 
     Ok(TickOutcome { runs })
@@ -317,7 +312,8 @@ fn announcement_message(
     ))
 }
 
-async fn retry_discord_only<R, D>(
+async fn deliver_discord<R, D>(
+    now: DateTime<Utc>,
     award: &crate::awards::AwardDefinition,
     config: &AppConfig,
     repository: &R,
@@ -328,9 +324,53 @@ where
     R: AwardRepository,
     D: DiscordClient,
 {
-    let message = announcement_message(award, config, &run)?;
-    discord.post_message(&message).await?;
-    repository
-        .mark_completed(&run.award_slug, &run.period_key)
-        .await
+    if run.status == AwardRunStatus::Completed {
+        return Ok(run);
+    }
+
+    let lease_expires_at = now
+        .checked_add_signed(DISCORD_DELIVERY_LEASE)
+        .ok_or_else(|| AppError::Repository("Discord delivery lease overflow".into()))?;
+    let claim_token = new_discord_claim_token()?;
+    let claim = repository
+        .claim_discord_delivery(
+            &run.award_slug,
+            &run.period_key,
+            &claim_token,
+            now,
+            lease_expires_at,
+        )
+        .await?;
+    if !claim.acquired {
+        return Ok(claim.run);
+    }
+
+    let message = announcement_message(award, config, &claim.run)?;
+    // The lease prevents overlapping live deliveries. Discord HTTP acceptance and the D1
+    // completion write cannot be atomic, so a crash between them can still duplicate after expiry.
+    match discord.post_message(&message).await {
+        Ok(()) => {
+            repository
+                .mark_completed(&run.award_slug, &run.period_key, &claim_token)
+                .await
+        }
+        Err(err) => {
+            repository
+                .mark_discord_pending(
+                    &run.award_slug,
+                    &run.period_key,
+                    &claim_token,
+                    &err.to_string(),
+                )
+                .await
+        }
+    }
+}
+
+fn new_discord_claim_token() -> Result<String, AppError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::getrandom(&mut bytes).map_err(|err| {
+        AppError::Repository(format!("Discord claim token generation failed: {err}"))
+    })?;
+    Ok(hex::encode(bytes))
 }

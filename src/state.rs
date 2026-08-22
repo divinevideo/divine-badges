@@ -7,6 +7,7 @@ pub enum AwardRunStatus {
     SkippedInactive,
     AwardPrepared,
     Awarded,
+    DiscordSending,
     AwardedDiscordPending,
     Completed,
 }
@@ -21,6 +22,7 @@ impl AwardRunStatus {
             Self::SkippedInactive => "skipped_inactive",
             Self::AwardPrepared => "award_prepared",
             Self::Awarded => "awarded",
+            Self::DiscordSending => "discord_sending",
             Self::AwardedDiscordPending => "awarded_discord_pending",
             Self::Completed => "completed",
         }
@@ -35,6 +37,7 @@ impl AwardRunStatus {
             "skipped_inactive" => Some(Self::SkippedInactive),
             "award_prepared" => Some(Self::AwardPrepared),
             "awarded" => Some(Self::Awarded),
+            "discord_sending" => Some(Self::DiscordSending),
             "awarded_discord_pending" => Some(Self::AwardedDiscordPending),
             "completed" => Some(Self::Completed),
             _ => None,
@@ -42,25 +45,44 @@ impl AwardRunStatus {
     }
 }
 
-pub fn next_status_after_fetch_failure(_current: AwardRunStatus) -> AwardRunStatus {
-    AwardRunStatus::FailedFetch
+pub fn next_status_after_fetch_failure(current: AwardRunStatus) -> AwardRunStatus {
+    match current {
+        AwardRunStatus::Pending | AwardRunStatus::FailedFetch | AwardRunStatus::SkippedInactive => {
+            AwardRunStatus::FailedFetch
+        }
+        other => other,
+    }
 }
 
-pub fn next_status_after_definition_failure(_current: AwardRunStatus) -> AwardRunStatus {
-    AwardRunStatus::FailedDefinition
+pub fn next_status_after_definition_failure(current: AwardRunStatus) -> AwardRunStatus {
+    match current {
+        AwardRunStatus::Pending
+        | AwardRunStatus::FailedFetch
+        | AwardRunStatus::FailedDefinition
+        | AwardRunStatus::SkippedInactive => AwardRunStatus::FailedDefinition,
+        other => other,
+    }
 }
 
-pub fn next_status_after_award_failure(_current: AwardRunStatus) -> AwardRunStatus {
-    AwardRunStatus::FailedAward
+pub fn next_status_after_award_failure(current: AwardRunStatus) -> AwardRunStatus {
+    match current {
+        AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward => AwardRunStatus::FailedAward,
+        other => other,
+    }
 }
 
-pub fn next_status_after_inactive_skip(_current: AwardRunStatus) -> AwardRunStatus {
-    AwardRunStatus::SkippedInactive
+pub fn next_status_after_inactive_skip(current: AwardRunStatus) -> AwardRunStatus {
+    match current {
+        AwardRunStatus::Pending | AwardRunStatus::FailedFetch | AwardRunStatus::SkippedInactive => {
+            AwardRunStatus::SkippedInactive
+        }
+        other => other,
+    }
 }
 
 pub fn next_status_after_discord_failure(current: AwardRunStatus) -> AwardRunStatus {
     match current {
-        AwardRunStatus::Awarded => AwardRunStatus::AwardedDiscordPending,
+        AwardRunStatus::DiscordSending => AwardRunStatus::AwardedDiscordPending,
         other => other,
     }
 }

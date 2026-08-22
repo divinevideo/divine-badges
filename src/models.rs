@@ -28,9 +28,17 @@ pub struct AwardRun {
     pub score: Option<f64>,
     pub award_event_id: Option<String>,
     pub prepared_award_event: Option<String>,
+    pub discord_claim_token: Option<String>,
+    pub discord_lease_expires_at: Option<DateTime<Utc>>,
     pub discord_message_sent: bool,
     pub status: AwardRunStatus,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiscordDeliveryClaim {
+    pub acquired: bool,
+    pub run: AwardRun,
 }
 
 impl AwardRun {
@@ -58,6 +66,8 @@ impl AwardRun {
             score: None,
             award_event_id: None,
             prepared_award_event: None,
+            discord_claim_token: None,
+            discord_lease_expires_at: None,
             discord_message_sent: false,
             status: AwardRunStatus::Pending,
             error_message: None,

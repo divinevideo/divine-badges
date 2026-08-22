@@ -1,9 +1,11 @@
 use divine_badges::models::AwardRun;
 use divine_badges::repository::{
     award_run_by_key_sql, award_run_insert_bindings, award_run_unique_index_sql,
-    award_run_update_bindings, claim_prepared_award_bindings, claim_prepared_award_sql,
-    claim_winner_bindings, claim_winner_sql, is_d1_safe_integer, recent_completed_runs_sql,
-    save_award_run_sql, save_badge_definition_sql, upsert_award_run_sql, AwardRunSqlValue,
+    claim_discord_delivery_sql, claim_prepared_award_bindings, claim_prepared_award_sql,
+    claim_winner_bindings, claim_winner_sql, is_d1_safe_integer, mark_award_failed_sql,
+    mark_awarded_sql, mark_completed_sql, mark_definition_failed_sql, mark_discord_pending_sql,
+    mark_fetch_failed_sql, mark_skipped_inactive_sql, recent_completed_runs_sql,
+    save_badge_definition_sql, upsert_award_run_sql, AwardRunSqlValue,
 };
 use divine_badges::state::AwardRunStatus;
 
@@ -20,6 +22,8 @@ fn pending_award_run_has_no_positive_engagement_score_receipt() {
     assert_eq!(run.score, None);
     assert_eq!(run.latest_eligible_publication_at, None);
     assert_eq!(run.prepared_award_event, None);
+    assert_eq!(run.discord_claim_token, None);
+    assert_eq!(run.discord_lease_expires_at, None);
 }
 
 #[test]
@@ -49,7 +53,7 @@ fn recent_completed_runs_query_filters_completed_rows() {
 
 #[test]
 fn every_award_run_select_uses_the_complete_score_receipt_column_order() {
-    let columns = "award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_message_sent, status, error_message";
+    let columns = "award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_claim_token, discord_lease_expires_at, discord_message_sent, status, error_message";
 
     assert_eq!(
         award_run_by_key_sql(),
@@ -69,7 +73,7 @@ fn award_run_insert_sql_and_bindings_share_the_complete_receipt_order() {
 
     assert_eq!(
         upsert_award_run_sql(),
-        "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27) ON CONFLICT(award_slug, period_key) DO NOTHING"
+        "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_claim_token, discord_lease_expires_at, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29) ON CONFLICT(award_slug, period_key) DO NOTHING"
     );
     assert_eq!(
         award_run_insert_bindings(&run, "2026-08-22T00:00:00Z"),
@@ -96,52 +100,13 @@ fn award_run_insert_sql_and_bindings_share_the_complete_receipt_order() {
             AwardRunSqlValue::Real(88.75),
             AwardRunSqlValue::Text("award-event-id".into()),
             AwardRunSqlValue::Text("{\"id\":\"award-event-id\"}".into()),
+            AwardRunSqlValue::Text("discord-claim".into()),
+            AwardRunSqlValue::Text("2026-08-22T00:05:00+00:00".into()),
             AwardRunSqlValue::Integer(1),
             AwardRunSqlValue::Text("completed".into()),
             AwardRunSqlValue::Text("receipt retained".into()),
             AwardRunSqlValue::Text("2026-08-22T00:00:00Z".into()),
             AwardRunSqlValue::Text("2026-08-22T00:00:00Z".into()),
-        ]
-    );
-}
-
-#[test]
-fn full_winner_update_sql_and_bindings_share_the_complete_receipt_order() {
-    let run = complete_award_run();
-
-    assert_eq!(
-        save_award_run_sql(),
-        "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, latest_eligible_publication_at = ?7, loops = ?8, views = ?9, unique_viewers = ?10, videos_with_views = ?11, positive_reactors = ?12, distinct_commenters = ?13, distinct_reposters = ?14, distinct_positive_engagers = ?15, engagement_tier = ?16, engagement_rate = ?17, score = ?18, award_event_id = ?19, prepared_award_event = ?20, discord_message_sent = ?21, status = ?22, error_message = ?23, updated_at = ?24 WHERE award_slug = ?25 AND period_key = ?26"
-    );
-    assert_eq!(
-        award_run_update_bindings(&run, "2026-08-22T00:00:00Z"),
-        vec![
-            AwardRunSqlValue::Text("day".into()),
-            AwardRunSqlValue::Text("winner-pubkey".into()),
-            AwardRunSqlValue::Text("Winner".into()),
-            AwardRunSqlValue::Text("winner".into()),
-            AwardRunSqlValue::Text("winner@divine.video".into()),
-            AwardRunSqlValue::Text("https://cdn.divine.video/winner.jpg".into()),
-            AwardRunSqlValue::Text("2026-08-21T12:00:00+00:00".into()),
-            AwardRunSqlValue::Real(12.5),
-            AwardRunSqlValue::Integer(101),
-            AwardRunSqlValue::Integer(91),
-            AwardRunSqlValue::Integer(4),
-            AwardRunSqlValue::Integer(13),
-            AwardRunSqlValue::Integer(8),
-            AwardRunSqlValue::Integer(5),
-            AwardRunSqlValue::Integer(21),
-            AwardRunSqlValue::Integer(1),
-            AwardRunSqlValue::Real(0.230_769),
-            AwardRunSqlValue::Real(88.75),
-            AwardRunSqlValue::Text("award-event-id".into()),
-            AwardRunSqlValue::Text("{\"id\":\"award-event-id\"}".into()),
-            AwardRunSqlValue::Integer(1),
-            AwardRunSqlValue::Text("completed".into()),
-            AwardRunSqlValue::Text("receipt retained".into()),
-            AwardRunSqlValue::Text("2026-08-22T00:00:00Z".into()),
-            AwardRunSqlValue::Text("diviner-of-the-day".into()),
-            AwardRunSqlValue::Text("2026-08-21".into()),
         ]
     );
 }
@@ -205,12 +170,30 @@ fn prepared_award_migration_adds_nullable_activity_and_signed_event_columns() {
 }
 
 #[test]
+fn discord_lease_migration_adds_nullable_claim_metadata() {
+    let sql = include_str!("../migrations/0006_discord_delivery_lease.sql");
+    let statements: Vec<_> = sql
+        .split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+        .collect();
+
+    assert_eq!(
+        statements,
+        vec![
+            "ALTER TABLE award_runs ADD COLUMN discord_claim_token TEXT",
+            "ALTER TABLE award_runs ADD COLUMN discord_lease_expires_at TEXT",
+        ]
+    );
+}
+
+#[test]
 fn winner_claim_is_atomic_and_cannot_overwrite_an_existing_receipt() {
     let run = complete_award_run();
 
     assert_eq!(
         claim_winner_sql(),
-        "UPDATE award_runs SET winner_pubkey = ?1, winner_display_name = ?2, winner_name = ?3, winner_nip05 = ?4, winner_picture = ?5, latest_eligible_publication_at = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, error_message = NULL, updated_at = ?18 WHERE award_slug = ?19 AND period_key = ?20 AND winner_pubkey IS NULL"
+        "UPDATE award_runs SET winner_pubkey = ?1, winner_display_name = ?2, winner_name = ?3, winner_nip05 = ?4, winner_picture = ?5, latest_eligible_publication_at = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, error_message = NULL, updated_at = ?18 WHERE award_slug = ?19 AND period_key = ?20 AND winner_pubkey IS NULL AND status IN ('pending', 'failed_fetch', 'skipped_inactive')"
     );
     let bindings = claim_winner_bindings(&run, "2026-08-22T00:00:00Z");
     assert_eq!(bindings.len(), 20);
@@ -226,7 +209,7 @@ fn winner_claim_is_atomic_and_cannot_overwrite_an_existing_receipt() {
 fn prepared_event_claim_is_atomic_and_sets_the_prepared_state_and_event_id() {
     assert_eq!(
         claim_prepared_award_sql(),
-        "UPDATE award_runs SET prepared_award_event = ?1, award_event_id = ?2, status = 'award_prepared', error_message = NULL, updated_at = ?3 WHERE award_slug = ?4 AND period_key = ?5 AND prepared_award_event IS NULL"
+        "UPDATE award_runs SET prepared_award_event = ?1, award_event_id = ?2, status = 'award_prepared', error_message = NULL, updated_at = ?3 WHERE award_slug = ?4 AND period_key = ?5 AND winner_pubkey IS NOT NULL AND prepared_award_event IS NULL AND status NOT IN ('award_prepared', 'awarded', 'discord_sending', 'awarded_discord_pending', 'completed')"
     );
     assert_eq!(
         claim_prepared_award_bindings(
@@ -244,6 +227,28 @@ fn prepared_event_claim_is_atomic_and_sets_the_prepared_state_and_event_id() {
             AwardRunSqlValue::Text("2026-08-21".into()),
         ]
     );
+}
+
+#[test]
+fn status_transition_sql_is_monotonic_and_discord_delivery_is_leased() {
+    assert!(mark_fetch_failed_sql().contains("winner_pubkey IS NULL"));
+    assert!(mark_skipped_inactive_sql().contains("winner_pubkey IS NULL"));
+    assert!(mark_definition_failed_sql().contains("prepared_award_event IS NULL"));
+    assert!(mark_award_failed_sql().contains("status IN ('award_prepared', 'failed_award')"));
+    assert!(mark_awarded_sql().contains("status IN ('award_prepared', 'failed_award')"));
+
+    let claim = claim_discord_delivery_sql();
+    assert!(claim.contains("status = 'discord_sending'"));
+    assert!(claim.contains("discord_claim_token = ?1"));
+    assert!(claim.contains("discord_lease_expires_at <= ?4"));
+    assert!(claim.contains("status IN ('awarded', 'awarded_discord_pending')"));
+
+    for sql in [mark_discord_pending_sql(), mark_completed_sql()] {
+        assert!(sql.contains("status = 'discord_sending'"));
+        assert!(sql.contains("discord_claim_token = ?1"));
+    }
+    assert!(mark_completed_sql().contains("status = 'completed'"));
+    assert!(mark_completed_sql().contains("discord_message_sent = 1"));
 }
 
 fn complete_award_run() -> AwardRun {
@@ -267,6 +272,8 @@ fn complete_award_run() -> AwardRun {
     run.score = Some(88.75);
     run.award_event_id = Some("award-event-id".into());
     run.prepared_award_event = Some("{\"id\":\"award-event-id\"}".into());
+    run.discord_claim_token = Some("discord-claim".into());
+    run.discord_lease_expires_at = Some("2026-08-22T00:05:00Z".parse().unwrap());
     run.discord_message_sent = true;
     run.status = AwardRunStatus::Completed;
     run.error_message = Some("receipt retained".into());

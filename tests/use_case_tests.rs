@@ -7,7 +7,9 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::config::AppConfig;
 use divine_badges::error::AppError;
-use divine_badges::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
+use divine_badges::models::{
+    AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate,
+};
 use divine_badges::nostr::{DefinitionPublishResult, SignedNostrEvent};
 use divine_badges::ports::{
     AwardRepository, BadgePublisher, DiscordClient, DivinerCandidatesClient,
@@ -29,6 +31,8 @@ struct FakeRepo {
     winner_claim_override: RefCell<Option<AwardRun>>,
     prepared_claim_override: RefCell<Option<SignedNostrEvent>>,
     fail_mark_awarded_once: RefCell<bool>,
+    complete_before_mark_awarded: RefCell<bool>,
+    complete_before_mark_award_failed: RefCell<bool>,
 }
 
 impl Default for FakeRepo {
@@ -40,6 +44,8 @@ impl Default for FakeRepo {
             winner_claim_override: RefCell::new(None),
             prepared_claim_override: RefCell::new(None),
             fail_mark_awarded_once: RefCell::new(false),
+            complete_before_mark_awarded: RefCell::new(false),
+            complete_before_mark_award_failed: RefCell::new(false),
         }
     }
 }
@@ -122,11 +128,6 @@ impl AwardRepository for FakeRepo {
         Ok(self.runs.borrow_mut().entry(key).or_insert(run).clone())
     }
 
-    async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError> {
-        self.operations.borrow_mut().push("save-award-run".into());
-        Ok(self.store(run.clone()))
-    }
-
     async fn claim_winner(&self, proposed: &AwardRun) -> Result<AwardRun, AppError> {
         self.operations.borrow_mut().push("claim-winner".into());
         let key = (proposed.award_slug.clone(), proposed.period_key.clone());
@@ -136,7 +137,14 @@ impl AwardRepository for FakeRepo {
             .get(&key)
             .cloned()
             .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        if current.winner_pubkey.is_some() {
+        if current.winner_pubkey.is_some()
+            || !matches!(
+                current.status,
+                AwardRunStatus::Pending
+                    | AwardRunStatus::FailedFetch
+                    | AwardRunStatus::SkippedInactive
+            )
+        {
             return Ok(current);
         }
 
@@ -164,7 +172,17 @@ impl AwardRepository for FakeRepo {
             .get(&key)
             .cloned()
             .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        if current.prepared_award_event.is_some() {
+        if current.winner_pubkey.is_none()
+            || current.prepared_award_event.is_some()
+            || matches!(
+                current.status,
+                AwardRunStatus::AwardPrepared
+                    | AwardRunStatus::Awarded
+                    | AwardRunStatus::DiscordSending
+                    | AwardRunStatus::AwardedDiscordPending
+                    | AwardRunStatus::Completed
+            )
+        {
             return Ok(current);
         }
 
@@ -204,6 +222,23 @@ impl AwardRepository for FakeRepo {
         key: &str,
         error: &str,
     ) -> Result<AwardRun, AppError> {
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.winner_pubkey.is_some()
+            || current.prepared_award_event.is_some()
+            || !matches!(
+                current.status,
+                AwardRunStatus::Pending
+                    | AwardRunStatus::FailedFetch
+                    | AwardRunStatus::SkippedInactive
+            )
+        {
+            return Ok(current);
+        }
         self.update(slug, key, AwardRunStatus::FailedFetch, Some(error))
     }
 
@@ -213,6 +248,24 @@ impl AwardRepository for FakeRepo {
         key: &str,
         error: &str,
     ) -> Result<AwardRun, AppError> {
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.prepared_award_event.is_some()
+            || matches!(
+                current.status,
+                AwardRunStatus::AwardPrepared
+                    | AwardRunStatus::Awarded
+                    | AwardRunStatus::DiscordSending
+                    | AwardRunStatus::AwardedDiscordPending
+                    | AwardRunStatus::Completed
+            )
+        {
+            return Ok(current);
+        }
         self.update(slug, key, AwardRunStatus::FailedDefinition, Some(error))
     }
 
@@ -222,6 +275,31 @@ impl AwardRepository for FakeRepo {
         key: &str,
         error: &str,
     ) -> Result<AwardRun, AppError> {
+        if *self.complete_before_mark_award_failed.borrow() {
+            let mut completed = self
+                .runs
+                .borrow()
+                .get(&(slug.into(), key.into()))
+                .cloned()
+                .unwrap();
+            completed.status = AwardRunStatus::Completed;
+            completed.discord_message_sent = true;
+            self.store(completed);
+        }
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.prepared_award_event.is_none()
+            || !matches!(
+                current.status,
+                AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward
+            )
+        {
+            return Ok(current);
+        }
         self.update(slug, key, AwardRunStatus::FailedAward, Some(error))
     }
 
@@ -237,32 +315,142 @@ impl AwardRepository for FakeRepo {
                 "simulated crash after relay acceptance".into(),
             ));
         }
+        if *self.complete_before_mark_awarded.borrow() {
+            let mut completed = self
+                .runs
+                .borrow()
+                .get(&(slug.into(), key.into()))
+                .cloned()
+                .unwrap();
+            completed.status = AwardRunStatus::Completed;
+            completed.discord_message_sent = true;
+            self.store(completed);
+        }
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.prepared_award_event.is_none()
+            || current.award_event_id.as_deref() != Some(event_id)
+            || !matches!(
+                current.status,
+                AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward
+            )
+        {
+            return Ok(current);
+        }
         let mut run = self.update(slug, key, AwardRunStatus::Awarded, None)?;
         run.award_event_id = Some(event_id.into());
         Ok(self.store(run))
+    }
+
+    async fn claim_discord_delivery(
+        &self,
+        slug: &str,
+        key: &str,
+        claim_token: &str,
+        now: DateTime<Utc>,
+        lease_expires_at: DateTime<Utc>,
+    ) -> Result<DiscordDeliveryClaim, AppError> {
+        let mut current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        let available = !current.discord_message_sent
+            && (matches!(
+                current.status,
+                AwardRunStatus::Awarded | AwardRunStatus::AwardedDiscordPending
+            ) || (current.status == AwardRunStatus::DiscordSending
+                && current
+                    .discord_lease_expires_at
+                    .map(|expires| expires <= now)
+                    .unwrap_or(false)));
+        if available {
+            current.status = AwardRunStatus::DiscordSending;
+            current.discord_claim_token = Some(claim_token.into());
+            current.discord_lease_expires_at = Some(lease_expires_at);
+            current.error_message = None;
+            current = self.store(current);
+        }
+        Ok(DiscordDeliveryClaim {
+            acquired: current.status == AwardRunStatus::DiscordSending
+                && current.discord_claim_token.as_deref() == Some(claim_token),
+            run: current,
+        })
     }
 
     async fn mark_discord_pending(
         &self,
         slug: &str,
         key: &str,
+        claim_token: &str,
         error: &str,
     ) -> Result<AwardRun, AppError> {
-        self.update(
-            slug,
-            key,
-            AwardRunStatus::AwardedDiscordPending,
-            Some(error),
-        )
+        let mut current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.status == AwardRunStatus::DiscordSending
+            && current.discord_claim_token.as_deref() == Some(claim_token)
+        {
+            current.status = AwardRunStatus::AwardedDiscordPending;
+            current.discord_claim_token = None;
+            current.discord_lease_expires_at = None;
+            current.error_message = Some(error.into());
+            current = self.store(current);
+        }
+        Ok(current)
     }
 
-    async fn mark_completed(&self, slug: &str, key: &str) -> Result<AwardRun, AppError> {
-        let mut run = self.update(slug, key, AwardRunStatus::Completed, None)?;
-        run.discord_message_sent = true;
-        Ok(self.store(run))
+    async fn mark_completed(
+        &self,
+        slug: &str,
+        key: &str,
+        claim_token: &str,
+    ) -> Result<AwardRun, AppError> {
+        let mut current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.status == AwardRunStatus::DiscordSending
+            && current.discord_claim_token.as_deref() == Some(claim_token)
+        {
+            current.status = AwardRunStatus::Completed;
+            current.discord_message_sent = true;
+            current.discord_claim_token = None;
+            current.discord_lease_expires_at = None;
+            current.error_message = None;
+            current = self.store(current);
+        }
+        Ok(current)
     }
 
     async fn mark_skipped_inactive(&self, slug: &str, key: &str) -> Result<AwardRun, AppError> {
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.winner_pubkey.is_some()
+            || current.prepared_award_event.is_some()
+            || !matches!(
+                current.status,
+                AwardRunStatus::Pending
+                    | AwardRunStatus::FailedFetch
+                    | AwardRunStatus::SkippedInactive
+            )
+        {
+            return Ok(current);
+        }
         self.update(slug, key, AwardRunStatus::SkippedInactive, None)
     }
 }
@@ -307,6 +495,7 @@ struct FakePublisher {
     operations: Rc<RefCell<Vec<String>>>,
     fail_definition: bool,
     fail_prepare: bool,
+    fail_award: bool,
 }
 
 impl FakePublisher {
@@ -318,6 +507,7 @@ impl FakePublisher {
             operations,
             fail_definition: false,
             fail_prepare: false,
+            fail_award: false,
         }
     }
 }
@@ -365,6 +555,9 @@ impl BadgePublisher for FakePublisher {
         *self.count.borrow_mut() += 1;
         self.published_awards.borrow_mut().push(event.clone());
         self.operations.borrow_mut().push("publish-prepared".into());
+        if self.fail_award {
+            return Err(AppError::Relay("award relay unavailable".into()));
+        }
         Ok(event.id.clone())
     }
 }
@@ -372,13 +565,17 @@ impl BadgePublisher for FakePublisher {
 #[derive(Default)]
 struct FakeDiscord {
     messages: RefCell<Vec<String>>,
+    failure: RefCell<Option<String>>,
 }
 
 #[async_trait(?Send)]
 impl DiscordClient for FakeDiscord {
     async fn post_message(&self, message: &str) -> Result<(), AppError> {
         self.messages.borrow_mut().push(message.into());
-        Ok(())
+        match self.failure.borrow().as_deref() {
+            Some(error) => Err(AppError::Discord(error.into())),
+            None => Ok(()),
+        }
     }
 }
 
@@ -463,6 +660,25 @@ fn signed_event(
         ],
         sig: "e".repeat(128),
     }
+}
+
+async fn seed_prepared_run(repo: &FakeRepo, status: AwardRunStatus) -> SignedNostrEvent {
+    let coordinate = "30009:issuerpubkey:diviner-of-the-day";
+    let event = signed_event("stored-event", coordinate, FIRST, "2026-04-14");
+    let mut run = run_with_winner(FIRST, "stored winner");
+    run.status = status;
+    run.prepared_award_event = Some(serde_json::to_string(&event).unwrap());
+    run.award_event_id = Some(event.id.clone());
+    repo.upsert_award_run(run).await.unwrap();
+    repo.insert_badge_definition_seed(&BadgeDefinitionRecord::published(
+        &award_for_period_kind("day").unwrap(),
+        "https://cdn.divine.video/logo.png",
+        "definition-id",
+        coordinate,
+    ))
+    .await
+    .unwrap();
+    event
 }
 
 async fn execute(
@@ -874,7 +1090,7 @@ fn failed_award_resumes_the_stored_prepared_event_without_refetch_or_resigning()
 }
 
 #[test]
-fn preparation_failure_marks_failed_award_and_preserves_the_stored_winner() {
+fn preparation_failure_preserves_the_stored_winner_without_advancing_to_prepared() {
     block_on(async {
         let repo = FakeRepo::default();
         let candidates = FakeCandidates {
@@ -889,7 +1105,7 @@ fn preparation_failure_marks_failed_award_and_preserves_the_stored_winner() {
             .await
             .unwrap();
 
-        assert_eq!(outcome.runs[0].status, AwardRunStatus::FailedAward);
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Pending);
         assert_eq!(outcome.runs[0].winner_pubkey.as_deref(), Some(FIRST));
         assert!(publisher.published_awards.borrow().is_empty());
     });
@@ -971,6 +1187,198 @@ fn relay_acceptance_followed_by_repository_failure_retries_the_identical_event()
         assert_eq!(published.len(), 2);
         assert_eq!(published[0], published[1]);
         assert_eq!(published[0].id, published[1].id);
+    });
+}
+
+#[test]
+fn stale_relay_success_cannot_regress_or_reannounce_a_completed_run() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        seed_prepared_run(&repo, AwardRunStatus::AwardPrepared).await;
+        *repo.complete_before_mark_awarded.borrow_mut() = true;
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert!(discord.messages.borrow().is_empty());
+    });
+}
+
+#[test]
+fn stale_relay_failure_cannot_regress_a_completed_run() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        seed_prepared_run(&repo, AwardRunStatus::AwardPrepared).await;
+        *repo.complete_before_mark_award_failed.borrow_mut() = true;
+        let candidates = FakeCandidates::default();
+        let mut publisher = FakePublisher::new(repo.operations.clone());
+        publisher.fail_award = true;
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert!(discord.messages.borrow().is_empty());
+    });
+}
+
+#[test]
+fn worker_with_an_unexpired_discord_lease_does_not_publish_or_post() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        seed_prepared_run(&repo, AwardRunStatus::DiscordSending).await;
+        {
+            let mut runs = repo.runs.borrow_mut();
+            let run = runs
+                .get_mut(&("diviner_of_the_day".into(), "2026-04-14".into()))
+                .unwrap();
+            run.discord_claim_token = Some("other-worker".into());
+            run.discord_lease_expires_at = Some(tick() + Duration::minutes(5));
+        }
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::DiscordSending);
+        assert!(publisher.published_awards.borrow().is_empty());
+        assert!(discord.messages.borrow().is_empty());
+    });
+}
+
+#[test]
+fn discord_claim_allows_one_live_worker_and_reclaims_after_expiry() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "stored winner");
+        run.status = AwardRunStatus::Awarded;
+        repo.upsert_award_run(run).await.unwrap();
+        let now = tick();
+
+        let first = repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "worker-a",
+                now,
+                now + Duration::minutes(5),
+            )
+            .await
+            .unwrap();
+        let overlapping = repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "worker-b",
+                now + Duration::minutes(1),
+                now + Duration::minutes(6),
+            )
+            .await
+            .unwrap();
+        let reclaimed = repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "worker-b",
+                now + Duration::minutes(5),
+                now + Duration::minutes(10),
+            )
+            .await
+            .unwrap();
+
+        assert!(first.acquired);
+        assert!(!overlapping.acquired);
+        assert!(reclaimed.acquired);
+        assert_eq!(
+            reclaimed.run.discord_claim_token.as_deref(),
+            Some("worker-b")
+        );
+    });
+}
+
+#[test]
+fn two_workers_reaching_discord_concurrently_allow_only_the_claimant_to_post() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "stored winner");
+        run.status = AwardRunStatus::Awarded;
+        repo.upsert_award_run(run).await.unwrap();
+        let now = tick();
+        let discord = FakeDiscord::default();
+
+        let worker_a = repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "worker-a",
+                now,
+                now + Duration::minutes(5),
+            )
+            .await
+            .unwrap();
+        let worker_b = repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "worker-b",
+                now,
+                now + Duration::minutes(5),
+            )
+            .await
+            .unwrap();
+
+        for claim in [worker_a, worker_b] {
+            if claim.acquired {
+                discord.post_message("one announcement").await.unwrap();
+            }
+        }
+
+        assert_eq!(discord.messages.borrow().as_slice(), &["one announcement"]);
+    });
+}
+
+#[test]
+fn discord_failure_releases_the_lease_and_remains_retryable() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "stored winner");
+        run.status = AwardRunStatus::Awarded;
+        repo.upsert_award_run(run).await.unwrap();
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        *discord.failure.borrow_mut() = Some("webhook unavailable".into());
+
+        let failed = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(failed.runs[0].status, AwardRunStatus::AwardedDiscordPending);
+        assert_eq!(failed.runs[0].discord_claim_token, None);
+        assert_eq!(failed.runs[0].discord_lease_expires_at, None);
+
+        *discord.failure.borrow_mut() = None;
+        let retried = execute(
+            tick() + Duration::minutes(1),
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+        assert_eq!(retried.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(discord.messages.borrow().len(), 2);
     });
 }
 

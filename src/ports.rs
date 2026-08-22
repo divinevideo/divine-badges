@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 
 use crate::awards::AwardDefinition;
 use crate::error::AppError;
-use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
+use crate::models::{AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate};
 use crate::nostr::{DefinitionPublishResult, SignedNostrEvent};
 
 #[async_trait(?Send)]
@@ -18,7 +18,6 @@ pub trait AwardRepository {
     ) -> Result<Option<BadgeDefinitionRecord>, AppError>;
     async fn save_badge_definition(&self, record: &BadgeDefinitionRecord) -> Result<(), AppError>;
     async fn upsert_award_run(&self, run: AwardRun) -> Result<AwardRun, AppError>;
-    async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError>;
     async fn claim_winner(&self, proposed: &AwardRun) -> Result<AwardRun, AppError>;
     async fn claim_prepared_award(
         &self,
@@ -55,16 +54,26 @@ pub trait AwardRepository {
         period_key: &str,
         award_event_id: &str,
     ) -> Result<AwardRun, AppError>;
+    async fn claim_discord_delivery(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        claim_token: &str,
+        now: DateTime<Utc>,
+        lease_expires_at: DateTime<Utc>,
+    ) -> Result<DiscordDeliveryClaim, AppError>;
     async fn mark_discord_pending(
         &self,
         award_slug: &str,
         period_key: &str,
+        claim_token: &str,
         error_message: &str,
     ) -> Result<AwardRun, AppError>;
     async fn mark_completed(
         &self,
         award_slug: &str,
         period_key: &str,
+        claim_token: &str,
     ) -> Result<AwardRun, AppError>;
     async fn mark_skipped_inactive(
         &self,
