@@ -1,13 +1,27 @@
 pub fn build_announcement_message(
     award_name: &str,
     winner_name: &str,
-    loops: f64,
+    positive_reactors: i64,
+    commenters: i64,
+    reposts: i64,
+    unique_viewers: i64,
     creator_link: &str,
 ) -> String {
+    let reactor_noun = pluralized(positive_reactors, "positive reactor", "positive reactors");
+    let commenter_noun = pluralized(commenters, "commenter", "commenters");
+    let repost_noun = pluralized(reposts, "repost", "reposts");
+    let viewer_noun = pluralized(unique_viewers, "unique viewer", "unique viewers");
     format!(
-        "{award_name}: {winner_name} won with {} loops. {creator_link}",
-        loops.round() as i64
+        "{award_name}: {winner_name} — {positive_reactors} {reactor_noun}, {commenters} {commenter_noun}, {reposts} {repost_noun}, and {unique_viewers} {viewer_noun}.\n{creator_link}"
     )
+}
+
+fn pluralized<'a>(count: i64, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 {
+        singular
+    } else {
+        plural
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

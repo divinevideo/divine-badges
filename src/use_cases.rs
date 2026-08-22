@@ -334,12 +334,23 @@ fn announcement_message(
         .as_deref()
         .or(run.winner_name.as_deref())
         .unwrap_or(winner_pubkey);
+    let positive_reactors = required_receipt_count(run.positive_reactors, "positive reactors")?;
+    let commenters = required_receipt_count(run.distinct_commenters, "commenters")?;
+    let reposts = required_receipt_count(run.distinct_reposters, "reposts")?;
+    let unique_viewers = required_receipt_count(run.unique_viewers, "unique viewers")?;
     Ok(build_announcement_message(
         award.badge_name,
         winner_display,
-        run.loops.unwrap_or_default(),
+        positive_reactors,
+        commenters,
+        reposts,
+        unique_viewers,
         &config.creator_link(run.winner_nip05.as_deref(), winner_pubkey),
     ))
+}
+
+fn required_receipt_count(value: Option<i64>, field: &str) -> Result<i64, AppError> {
+    value.ok_or_else(|| AppError::Discord(format!("missing {field} in stored award receipt")))
 }
 
 async fn deliver_discord<R, D, C>(
@@ -377,7 +388,20 @@ where
         return Ok(claim.run);
     }
 
-    let message = announcement_message(award, config, &claim.run)?;
+    let message = match announcement_message(award, config, &claim.run) {
+        Ok(message) => message,
+        Err(err) => {
+            repository
+                .mark_discord_pending(
+                    &claim.run.award_slug,
+                    &claim.run.period_key,
+                    &claim_token,
+                    &err.to_string(),
+                )
+                .await?;
+            return Err(err);
+        }
+    };
     // The lease prevents overlapping live deliveries. Discord HTTP acceptance and the D1
     // completion write cannot be atomic, so a crash between them can still duplicate after expiry.
     match discord

@@ -1004,7 +1004,51 @@ fn awarded_states_retry_only_discord_from_the_stored_receipt() {
             assert!(candidates.calls.borrow().is_empty());
             assert_eq!(*publisher.count.borrow(), 0);
             assert_eq!(discord.messages.borrow().len(), 1);
+            assert_eq!(
+                discord.messages.borrow()[0],
+                format!(
+                    "Diviner of the Day: stored winner — 7 positive reactors, 5 commenters, 3 reposts, and 20 unique viewers.\nhttps://divine.video/{}",
+                    divine_badges::nip19::encode_npub(FIRST).unwrap()
+                )
+            );
         }
+    });
+}
+
+#[test]
+fn legacy_discord_retry_with_an_incomplete_receipt_returns_an_error_and_releases_the_lease() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "legacy winner");
+        run.status = AwardRunStatus::AwardedDiscordPending;
+        run.positive_reactors = None;
+        repo.upsert_award_run(run).await.unwrap();
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let error = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::Discord(_)));
+        let stored = repo
+            .runs
+            .borrow()
+            .get(&("diviner_of_the_day".into(), "2026-04-14".into()))
+            .cloned()
+            .unwrap();
+        assert_eq!(stored.status, AwardRunStatus::AwardedDiscordPending);
+        assert_eq!(stored.discord_claim_token, None);
+        assert_eq!(stored.discord_lease_expires_at, None);
+        assert!(stored
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("missing positive reactors"));
+        assert!(candidates.calls.borrow().is_empty());
+        assert_eq!(*publisher.count.borrow(), 0);
+        assert!(discord.messages.borrow().is_empty());
     });
 }
 
