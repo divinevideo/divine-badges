@@ -338,7 +338,7 @@ fn announcement_message(
     let commenters = required_receipt_count(run.distinct_commenters, "commenters")?;
     let reposts = required_receipt_count(run.distinct_reposters, "reposts")?;
     let unique_viewers = required_receipt_count(run.unique_viewers, "unique viewers")?;
-    Ok(build_announcement_message(
+    build_announcement_message(
         award.badge_name,
         winner_display,
         positive_reactors,
@@ -346,11 +346,14 @@ fn announcement_message(
         reposts,
         unique_viewers,
         &config.creator_link(run.winner_nip05.as_deref(), winner_pubkey),
-    ))
+    )
 }
 
-fn required_receipt_count(value: Option<i64>, field: &str) -> Result<i64, AppError> {
-    value.ok_or_else(|| AppError::Discord(format!("missing {field} in stored award receipt")))
+fn required_receipt_count(value: Option<i64>, field: &str) -> Result<u64, AppError> {
+    let value = value
+        .ok_or_else(|| AppError::Discord(format!("missing {field} in stored award receipt")))?;
+    u64::try_from(value)
+        .map_err(|_| AppError::Discord(format!("invalid negative {field} in stored award receipt")))
 }
 
 async fn deliver_discord<R, D, C>(

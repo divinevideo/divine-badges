@@ -1,20 +1,43 @@
+use crate::error::AppError;
+
+const DISCORD_CONTENT_MAX_UTF16_UNITS: usize = 2_000;
+
 pub fn build_announcement_message(
     award_name: &str,
     winner_name: &str,
-    positive_reactors: i64,
-    commenters: i64,
-    reposts: i64,
-    unique_viewers: i64,
+    positive_reactors: u64,
+    commenters: u64,
+    reposts: u64,
+    unique_viewers: u64,
     creator_link: &str,
-) -> String {
+) -> Result<String, AppError> {
     let winner_name = sanitized_display_name(winner_name);
     let reactor_noun = pluralized(positive_reactors, "positive reactor", "positive reactors");
     let commenter_noun = pluralized(commenters, "commenter", "commenters");
     let repost_noun = pluralized(reposts, "repost", "reposts");
     let viewer_noun = pluralized(unique_viewers, "unique viewer", "unique viewers");
-    format!(
-        "{award_name}: {winner_name} — {positive_reactors} {reactor_noun}, {commenters} {commenter_noun}, {reposts} {repost_noun}, and {unique_viewers} {viewer_noun}.\n{creator_link}"
-    )
+    let prefix = format!("{award_name}: ");
+    let receipt_and_link = format!(
+        " — {positive_reactors} {reactor_noun}, {commenters} {commenter_noun}, {reposts} {repost_noun}, and {unique_viewers} {viewer_noun}.\n{creator_link}"
+    );
+    let immutable_units = utf16_units(&prefix) + utf16_units(&receipt_and_link);
+    let name_budget = DISCORD_CONTENT_MAX_UTF16_UNITS
+        .checked_sub(immutable_units)
+        .filter(|budget| *budget > 0)
+        .ok_or_else(|| {
+            AppError::Discord(
+                "award label, engagement receipt, and full creator link exceed Discord's content limit"
+                    .into(),
+            )
+        })?;
+    let winner_name = bounded_display_name(&winner_name, name_budget);
+    let message = format!("{prefix}{winner_name}{receipt_and_link}");
+    if utf16_units(&message) > DISCORD_CONTENT_MAX_UTF16_UNITS {
+        return Err(AppError::Discord(
+            "announcement exceeds Discord's content limit".into(),
+        ));
+    }
+    Ok(message)
 }
 
 pub fn build_webhook_payload(message: &str) -> String {
@@ -57,7 +80,35 @@ fn contains_web_link(token: &str) -> bool {
     lowercase.contains("https://") || lowercase.contains("http://") || lowercase.contains("www.")
 }
 
-fn pluralized<'a>(count: i64, singular: &'a str, plural: &'a str) -> &'a str {
+fn bounded_display_name(value: &str, budget: usize) -> String {
+    if utf16_units(value) <= budget {
+        return value.into();
+    }
+
+    // Discord's limit is conservatively budgeted in UTF-16 units. We truncate only after a
+    // complete Rust `char` (Unicode scalar value), so multibyte UTF-8 is never split. A grapheme
+    // may contain multiple scalars; preserving whole graphemes would require a larger dependency
+    // and is not needed for a safe, valid message.
+    let content_budget = budget.saturating_sub(1);
+    let mut bounded = String::new();
+    let mut used = 0;
+    for character in value.chars() {
+        let units = character.len_utf16();
+        if used + units > content_budget {
+            break;
+        }
+        bounded.push(character);
+        used += units;
+    }
+    bounded.push('…');
+    bounded
+}
+
+fn utf16_units(value: &str) -> usize {
+    value.encode_utf16().count()
+}
+
+fn pluralized<'a>(count: u64, singular: &'a str, plural: &'a str) -> &'a str {
     if count == 1 {
         singular
     } else {

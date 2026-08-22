@@ -10,7 +10,8 @@ fn announcement_message_explains_the_persisted_engagement_receipt() {
         7,
         318,
         "https://divine.video/ada",
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         text,
@@ -30,7 +31,8 @@ fn announcement_message_removes_injected_lines_and_urls_without_breaking_unicode
         7,
         318,
         "https://divine.video/ada",
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         text,
@@ -51,7 +53,8 @@ fn announcement_message_uses_a_safe_fallback_when_the_name_sanitizes_empty() {
         1,
         1,
         "https://divine.video/ada",
-    );
+    )
+    .unwrap();
 
     assert!(text.starts_with("Diviner of the Day: Divine creator —"));
     assert!(!text.contains("evil.example"));
@@ -96,11 +99,54 @@ fn announcement_message_pluralizes_each_engagement_signal_independently() {
             reposts,
             viewers,
             "https://divine.video/ada",
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             text,
             format!("Diviner of the Day: Ada — {expected_receipt}.\nhttps://divine.video/ada")
         );
     }
+}
+
+#[test]
+fn announcement_bounds_oversized_ascii_name_around_the_complete_receipt_and_link() {
+    let link =
+        "https://divine.video/npub1qy352euf40x77qfrg4ncn27dauqjx3t83x4ummcpydzk0zdtehhstefp92";
+    let text = build_announcement_message(
+        "Diviner of the Day",
+        &"A".repeat(10_000),
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        link,
+    )
+    .unwrap();
+
+    assert!(text.encode_utf16().count() <= 2_000);
+    assert_eq!(text.lines().last(), Some(link));
+    assert_eq!(text.matches(&u64::MAX.to_string()).count(), 4);
+    assert!(text.contains("… — 18446744073709551615 positive reactors"));
+}
+
+#[test]
+fn announcement_bounds_multibyte_name_without_splitting_a_unicode_scalar() {
+    let link =
+        "https://divine.video/npub1qy352euf40x77qfrg4ncn27dauqjx3t83x4ummcpydzk0zdtehhstefp92";
+    let text = build_announcement_message(
+        "Diviner of the Day",
+        &"Å🚀東".repeat(3_000),
+        42,
+        9,
+        7,
+        318,
+        link,
+    )
+    .unwrap();
+
+    assert!(text.encode_utf16().count() <= 2_000);
+    assert_eq!(text.lines().last(), Some(link));
+    assert!(text.contains("Å🚀東"));
+    assert!(text.contains('…'));
 }
