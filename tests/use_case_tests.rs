@@ -1016,6 +1016,35 @@ fn awarded_states_retry_only_discord_from_the_stored_receipt() {
 }
 
 #[test]
+fn discord_retry_sanitizes_persisted_profile_fields_without_refetching() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "Åda\nhttps://evil.example/profile\t東京");
+        run.winner_nip05 = Some("evil.example#@divine.video".into());
+        run.status = AwardRunStatus::AwardedDiscordPending;
+        repo.upsert_award_run(run).await.unwrap();
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert!(candidates.calls.borrow().is_empty());
+        assert_eq!(*publisher.count.borrow(), 0);
+        assert_eq!(
+            discord.messages.borrow()[0],
+            format!(
+                "Diviner of the Day: Åda 東京 — 7 positive reactors, 5 commenters, 3 reposts, and 20 unique viewers.\nhttps://divine.video/{}",
+                divine_badges::nip19::encode_npub(FIRST).unwrap()
+            )
+        );
+    });
+}
+
+#[test]
 fn legacy_discord_retry_with_an_incomplete_receipt_returns_an_error_and_releases_the_lease() {
     block_on(async {
         let repo = FakeRepo::default();
