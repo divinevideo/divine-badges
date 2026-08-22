@@ -1,50 +1,60 @@
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeriodTarget {
     pub kind: &'static str,
     pub key: String,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
 }
 
 impl PeriodTarget {
-    pub fn day(key: &str) -> Self {
+    fn day(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "day",
-            key: key.to_string(),
+            key: start.format("%F").to_string(),
+            start,
+            end,
         }
     }
 
-    pub fn week(key: &str) -> Self {
+    fn week(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "week",
-            key: key.to_string(),
+            key: start.format("%G-W%V").to_string(),
+            start,
+            end,
         }
     }
 
-    pub fn month(key: &str) -> Self {
+    fn month(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "month",
-            key: key.to_string(),
+            key: start.format("%Y-%m").to_string(),
+            start,
+            end,
         }
     }
 }
 
 pub fn closed_periods_for_tick(now: DateTime<Utc>) -> Vec<PeriodTarget> {
-    let previous_day = now - Duration::days(1);
-    let mut result = vec![PeriodTarget::day(&previous_day.format("%F").to_string())];
+    let end = now.date_naive().and_time(NaiveTime::MIN).and_utc();
+    let Some(day_start) = end.checked_sub_signed(Duration::days(1)) else {
+        return Vec::new();
+    };
+    let mut result = vec![PeriodTarget::day(day_start, end)];
 
-    if now.weekday().number_from_monday() == 1 {
-        result.push(PeriodTarget::week(&format!(
-            "{:04}-W{:02}",
-            previous_day.iso_week().year(),
-            previous_day.iso_week().week()
-        )));
+    if end.weekday().number_from_monday() == 1 {
+        if let Some(week_start) = end.checked_sub_signed(Duration::weeks(1)) {
+            result.push(PeriodTarget::week(week_start, end));
+        }
     }
 
-    if now.day() == 1 {
-        result.push(PeriodTarget::month(
-            &previous_day.format("%Y-%m").to_string(),
-        ));
+    if end.day() == 1 {
+        let month_start = day_start.with_day(1);
+        if let Some(month_start) = month_start {
+            result.push(PeriodTarget::month(month_start, end));
+        }
     }
 
     result
