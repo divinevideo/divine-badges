@@ -60,6 +60,26 @@ fn non_monday_does_not_process_a_week() {
 }
 
 #[test]
+fn period_target_constructors_remain_public() {
+    let start = utc(2026, 12, 28, 0, 0, 0);
+    let end = utc(2027, 1, 4, 0, 0, 0);
+
+    assert_eq!(PeriodTarget::day(start, end).key, "2026-12-28");
+    assert_eq!(PeriodTarget::week(start, end).key, "2026-W53");
+    assert_eq!(PeriodTarget::month(start, end).key, "2026-12");
+}
+
+#[test]
+fn weekly_period_uses_the_prior_weeks_iso_year_at_year_rollover() {
+    let periods = closed_periods_for_tick(utc(2027, 1, 4, 12, 0, 0));
+    let week = period(&periods, "week");
+
+    assert_eq!(week.key, "2026-W53");
+    assert_eq!(week.start, utc(2026, 12, 28, 0, 0, 0));
+    assert_eq!(week.end, utc(2027, 1, 4, 0, 0, 0));
+}
+
+#[test]
 fn first_of_month_processes_the_prior_complete_calendar_month() {
     let periods = closed_periods_for_tick(utc(2026, 3, 1, 18, 45, 0));
     let month = period(&periods, "month");

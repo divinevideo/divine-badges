@@ -9,7 +9,7 @@ pub struct PeriodTarget {
 }
 
 impl PeriodTarget {
-    fn day(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+    pub fn day(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "day",
             key: start.format("%F").to_string(),
@@ -18,7 +18,7 @@ impl PeriodTarget {
         }
     }
 
-    fn week(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+    pub fn week(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "week",
             key: start.format("%G-W%V").to_string(),
@@ -27,7 +27,7 @@ impl PeriodTarget {
         }
     }
 
-    fn month(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+    pub fn month(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self {
             kind: "month",
             key: start.format("%Y-%m").to_string(),
