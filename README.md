@@ -63,6 +63,8 @@ npm run check:wasm  # cargo check --target wasm32-unknown-unknown
 
 Runtime and deployment config live in `wrangler.toml`. The Worker is named `divine-badges`, is served at `badges.divine.video/*`, binds the D1 database as `DB`, and runs its scheduled tick daily at 00:05 UTC (`crons = ["5 0 * * *"]`).
 
+After changing issuer profile copy, republish it through the authenticated `POST /admin/publish-profile` route as part of rollout. Deploying the Worker does not update the existing Nostr profile event by itself.
+
 Non-secret settings are committed as `[vars]` in `wrangler.toml`:
 
 | Var | Purpose |

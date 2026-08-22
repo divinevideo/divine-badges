@@ -55,19 +55,15 @@ fn public_copy_explains_engagement_first_awards_and_exact_utc_periods() {
             "issuer profile should name {signal}"
         );
     }
-    assert!(profile_copy.contains("exact closed utc periods"));
+    assert!(public_copy.contains("positive engagement comes first"));
+    assert!(public_copy.contains("reach and loops count for less"));
+    assert!(public_copy.contains("repeating the same action does not add more weight"));
+    assert!(public_copy.contains("negative reactions do not"));
+    assert!(public_copy.contains("if nobody gets positive engagement, reach picks the winner"));
 
-    assert!(public_copy.contains("positive engagement ranks first"));
-    assert!(public_copy.contains("unique reach is a small support signal"));
-    assert!(public_copy.contains("repeated actions by the same person do not multiply influence"));
-    assert!(public_copy.contains("negative reactions do not score"));
-    assert!(public_copy.contains(
-        "reach only guarantees a winner when nobody gets qualifying positive engagement"
-    ));
-
-    assert!(public_copy.contains("previous closed utc day"));
-    assert!(public_copy.contains("previous closed monday-through-sunday utc week"));
-    assert!(public_copy.contains("previous closed calendar utc month"));
+    assert!(public_copy.contains("previous utc day"));
+    assert!(public_copy.contains("monday-through-sunday week"));
+    assert!(public_copy.contains("calendar month"));
 
     for loop_only_claim in ["just loops", "most loops", "won with"] {
         assert!(

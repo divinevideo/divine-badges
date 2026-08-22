@@ -158,6 +158,7 @@ Deployment order is:
 3. Deploy Funnelcake.
 4. Deploy the badges D1 migration and worker client change.
 5. Confirm one dry-run result against its stored score breakdown before enabling scheduled publication.
+6. Republish the issuer profile through the authenticated `POST /admin/publish-profile` route.
 
 The badges worker must not deploy before the Funnelcake endpoint is available.
 
