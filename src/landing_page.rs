@@ -281,7 +281,7 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weig
 .howto{animation-delay:.28s}
 .foot{animation-delay:.34s}
 @media (max-width:760px){
-  .winner{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:14px;padding:18px}
+  .winner{grid-template-columns:auto 1fr;gap:14px;padding:18px}
   .topbar{padding:18px 0}
   .hero{padding:24px 0 60px}
   .foot{grid-template-columns:1fr}

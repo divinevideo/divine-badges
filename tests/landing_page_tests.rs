@@ -90,6 +90,14 @@ fn cron_retries_incomplete_closed_periods_hourly_after_the_first_attempt() {
     assert!(readme.contains("00:35Z is the first attempt"));
     assert!(readme.contains("later hourly invocations are idempotent retries"));
     assert!(readme.contains("incomplete closed-period runs"));
+    assert!(readme.contains("publishes the Diviner-of-the-day/week/month awards to the relay configured by `DIVINE_RELAY_URL`"));
+}
+
+#[test]
+fn mobile_winner_cards_do_not_reserve_a_removed_score_row() {
+    let html = render_page(&LandingPageView { sections: vec![] });
+
+    assert!(!html.contains("grid-template-rows:auto auto"));
 }
 
 #[test]
