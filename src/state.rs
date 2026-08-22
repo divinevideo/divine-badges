@@ -66,9 +66,15 @@ pub fn next_status_after_definition_failure(current: AwardRunStatus) -> AwardRun
 
 pub fn next_status_after_award_failure(current: AwardRunStatus) -> AwardRunStatus {
     match current {
+        AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward => AwardRunStatus::FailedAward,
+        other => other,
+    }
+}
+
+pub fn next_status_after_preparation_failure(current: AwardRunStatus) -> AwardRunStatus {
+    match current {
         AwardRunStatus::Pending
         | AwardRunStatus::FailedDefinition
-        | AwardRunStatus::AwardPrepared
         | AwardRunStatus::FailedAward => AwardRunStatus::FailedAward,
         other => other,
     }

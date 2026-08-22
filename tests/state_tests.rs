@@ -1,7 +1,7 @@
 use divine_badges::state::{
     next_status_after_award_failure, next_status_after_definition_failure,
     next_status_after_discord_failure, next_status_after_fetch_failure,
-    next_status_after_inactive_skip, AwardRunStatus,
+    next_status_after_inactive_skip, next_status_after_preparation_failure, AwardRunStatus,
 };
 
 #[test]
@@ -29,7 +29,15 @@ fn definition_failure_transitions_to_failed_definition() {
 #[test]
 fn award_failure_transitions_to_failed_award() {
     assert_eq!(
-        next_status_after_award_failure(AwardRunStatus::Pending),
+        next_status_after_award_failure(AwardRunStatus::AwardPrepared),
+        AwardRunStatus::FailedAward
+    );
+}
+
+#[test]
+fn preparation_failure_transitions_to_failed_award() {
+    assert_eq!(
+        next_status_after_preparation_failure(AwardRunStatus::Pending),
         AwardRunStatus::FailedAward
     );
 }
@@ -41,6 +49,7 @@ fn terminal_status_cannot_regress_through_failure_or_skip_transitions() {
         next_status_after_definition_failure,
         next_status_after_award_failure,
         next_status_after_inactive_skip,
+        next_status_after_preparation_failure,
         next_status_after_discord_failure,
     ] {
         assert_eq!(

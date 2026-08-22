@@ -158,7 +158,7 @@ where
                     Err(err) => {
                         runs.push(
                             repository
-                                .mark_award_failed(award.slug, &period.key, &err.to_string())
+                                .mark_preparation_failed(award.slug, &period.key, &err.to_string())
                                 .await?,
                         );
                         continue;

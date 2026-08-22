@@ -42,6 +42,12 @@ pub trait AwardRepository {
         period_key: &str,
         error_message: &str,
     ) -> Result<AwardRun, AppError>;
+    async fn mark_preparation_failed(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        error_message: &str,
+    ) -> Result<AwardRun, AppError>;
     async fn mark_award_failed(
         &self,
         award_slug: &str,

@@ -33,6 +33,7 @@ struct FakeRepo {
     fail_mark_awarded_once: RefCell<bool>,
     complete_before_mark_awarded: RefCell<bool>,
     complete_before_mark_award_failed: RefCell<bool>,
+    prepare_before_mark_preparation_failed: RefCell<bool>,
 }
 
 impl Default for FakeRepo {
@@ -46,6 +47,7 @@ impl Default for FakeRepo {
             fail_mark_awarded_once: RefCell::new(false),
             complete_before_mark_awarded: RefCell::new(false),
             complete_before_mark_award_failed: RefCell::new(false),
+            prepare_before_mark_preparation_failed: RefCell::new(false),
         }
     }
 }
@@ -256,19 +258,54 @@ impl AwardRepository for FakeRepo {
             .get(&(slug.into(), key.into()))
             .cloned()
             .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        if current.prepared_award_event.is_some()
-            || matches!(
+        if current.winner_pubkey.is_none()
+            || current.prepared_award_event.is_some()
+            || !matches!(
                 current.status,
-                AwardRunStatus::AwardPrepared
-                    | AwardRunStatus::Awarded
-                    | AwardRunStatus::DiscordSending
-                    | AwardRunStatus::AwardedDiscordPending
-                    | AwardRunStatus::Completed
+                AwardRunStatus::Pending | AwardRunStatus::FailedDefinition
             )
         {
             return Ok(current);
         }
         self.update(slug, key, AwardRunStatus::FailedDefinition, Some(error))
+    }
+
+    async fn mark_preparation_failed(
+        &self,
+        slug: &str,
+        key: &str,
+        error: &str,
+    ) -> Result<AwardRun, AppError> {
+        if *self.prepare_before_mark_preparation_failed.borrow() {
+            let mut prepared = self
+                .runs
+                .borrow()
+                .get(&(slug.into(), key.into()))
+                .cloned()
+                .unwrap();
+            prepared.prepared_award_event = Some("concurrent signed event".into());
+            prepared.award_event_id = Some("concurrent-event-id".into());
+            prepared.status = AwardRunStatus::AwardPrepared;
+            self.store(prepared);
+        }
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.winner_pubkey.is_none()
+            || current.prepared_award_event.is_some()
+            || !matches!(
+                current.status,
+                AwardRunStatus::Pending
+                    | AwardRunStatus::FailedDefinition
+                    | AwardRunStatus::FailedAward
+            )
+        {
+            return Ok(current);
+        }
+        self.update(slug, key, AwardRunStatus::FailedAward, Some(error))
     }
 
     async fn mark_award_failed(
@@ -294,13 +331,10 @@ impl AwardRepository for FakeRepo {
             .get(&(slug.into(), key.into()))
             .cloned()
             .ok_or_else(|| AppError::Repository("missing run".into()))?;
-        if current.winner_pubkey.is_none()
+        if current.prepared_award_event.is_none()
             || !matches!(
                 current.status,
-                AwardRunStatus::Pending
-                    | AwardRunStatus::FailedDefinition
-                    | AwardRunStatus::AwardPrepared
-                    | AwardRunStatus::FailedAward
+                AwardRunStatus::AwardPrepared | AwardRunStatus::FailedAward
             )
         {
             return Ok(current);
@@ -1139,6 +1173,57 @@ fn preparation_failure_records_failed_award_and_retries_from_the_stored_winner()
         assert_eq!(retried.runs[0].winner_pubkey.as_deref(), Some(FIRST));
         assert!(changed_upstream.calls.borrow().is_empty());
         assert_eq!(retry_publisher.published_awards.borrow().len(), 1);
+    });
+}
+
+#[test]
+fn stale_signing_failure_cannot_overwrite_a_concurrently_prepared_award() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        *repo.prepare_before_mark_preparation_failed.borrow_mut() = true;
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let mut publisher = FakePublisher::new(repo.operations.clone());
+        publisher.fail_prepare = true;
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::AwardPrepared);
+        assert_eq!(
+            outcome.runs[0].award_event_id.as_deref(),
+            Some("concurrent-event-id")
+        );
+        assert!(publisher.published_awards.borrow().is_empty());
+    });
+}
+
+#[test]
+fn late_definition_failure_cannot_overwrite_a_preparation_failure() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "stored winner");
+        run.status = AwardRunStatus::FailedAward;
+        run.error_message = Some("signing unavailable".into());
+        repo.upsert_award_run(run).await.unwrap();
+        let candidates = FakeCandidates::default();
+        let mut publisher = FakePublisher::new(repo.operations.clone());
+        publisher.fail_definition = true;
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::FailedAward);
+        assert_eq!(
+            outcome.runs[0].error_message.as_deref(),
+            Some("signing unavailable")
+        );
     });
 }
 

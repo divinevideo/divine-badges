@@ -4,8 +4,8 @@ use divine_badges::repository::{
     claim_discord_delivery_sql, claim_prepared_award_bindings, claim_prepared_award_sql,
     claim_winner_bindings, claim_winner_sql, is_d1_safe_integer, mark_award_failed_sql,
     mark_awarded_sql, mark_completed_sql, mark_definition_failed_sql, mark_discord_pending_sql,
-    mark_fetch_failed_sql, mark_skipped_inactive_sql, recent_completed_runs_sql,
-    save_badge_definition_sql, upsert_award_run_sql, AwardRunSqlValue,
+    mark_fetch_failed_sql, mark_preparation_failed_sql, mark_skipped_inactive_sql,
+    recent_completed_runs_sql, save_badge_definition_sql, upsert_award_run_sql, AwardRunSqlValue,
 };
 use divine_badges::state::AwardRunStatus;
 
@@ -233,10 +233,17 @@ fn prepared_event_claim_is_atomic_and_sets_the_prepared_state_and_event_id() {
 fn status_transition_sql_is_monotonic_and_discord_delivery_is_leased() {
     assert!(mark_fetch_failed_sql().contains("winner_pubkey IS NULL"));
     assert!(mark_skipped_inactive_sql().contains("winner_pubkey IS NULL"));
-    assert!(mark_definition_failed_sql().contains("prepared_award_event IS NULL"));
+    assert_eq!(
+        mark_definition_failed_sql(),
+        "UPDATE award_runs SET status = 'failed_definition', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND prepared_award_event IS NULL AND status IN ('pending', 'failed_definition')"
+    );
+    assert_eq!(
+        mark_preparation_failed_sql(),
+        "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND prepared_award_event IS NULL AND status IN ('pending', 'failed_definition', 'failed_award')"
+    );
     assert_eq!(
         mark_award_failed_sql(),
-        "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND status IN ('pending', 'failed_definition', 'award_prepared', 'failed_award')"
+        "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND prepared_award_event IS NOT NULL AND status IN ('award_prepared', 'failed_award')"
     );
     assert!(mark_awarded_sql().contains("status IN ('award_prepared', 'failed_award')"));
 

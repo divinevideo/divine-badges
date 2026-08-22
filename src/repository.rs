@@ -50,11 +50,15 @@ pub fn mark_skipped_inactive_sql() -> &'static str {
 }
 
 pub fn mark_definition_failed_sql() -> &'static str {
-    "UPDATE award_runs SET status = 'failed_definition', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND prepared_award_event IS NULL AND status NOT IN ('award_prepared', 'awarded', 'discord_sending', 'awarded_discord_pending', 'completed')"
+    "UPDATE award_runs SET status = 'failed_definition', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND prepared_award_event IS NULL AND status IN ('pending', 'failed_definition')"
+}
+
+pub fn mark_preparation_failed_sql() -> &'static str {
+    "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND prepared_award_event IS NULL AND status IN ('pending', 'failed_definition', 'failed_award')"
 }
 
 pub fn mark_award_failed_sql() -> &'static str {
-    "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND winner_pubkey IS NOT NULL AND status IN ('pending', 'failed_definition', 'award_prepared', 'failed_award')"
+    "UPDATE award_runs SET status = 'failed_award', error_message = ?1, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND prepared_award_event IS NOT NULL AND status IN ('award_prepared', 'failed_award')"
 }
 
 pub fn mark_awarded_sql() -> &'static str {
@@ -460,6 +464,27 @@ mod d1_repository {
             let now = now_string();
             self.execute_guarded_update(
                 crate::repository::mark_definition_failed_sql(),
+                &[
+                    JsValue::from_str(error_message),
+                    JsValue::from_str(&now),
+                    JsValue::from_str(award_slug),
+                    JsValue::from_str(period_key),
+                ],
+                award_slug,
+                period_key,
+            )
+            .await
+        }
+
+        async fn mark_preparation_failed(
+            &self,
+            award_slug: &str,
+            period_key: &str,
+            error_message: &str,
+        ) -> Result<AwardRun, AppError> {
+            let now = now_string();
+            self.execute_guarded_update(
+                crate::repository::mark_preparation_failed_sql(),
                 &[
                     JsValue::from_str(error_message),
                     JsValue::from_str(&now),
