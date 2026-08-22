@@ -2,7 +2,6 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use k256::schnorr::VerifyingKey;
 use url::Url;
 
-use crate::eligibility::is_candidate_active_for_period;
 use crate::error::AppError;
 use crate::models::{DivinerCandidate, DivinerCandidatesResponse};
 
@@ -90,11 +89,6 @@ pub fn validate_diviner_candidates_response(
                 "expected rank {expected_rank}, reported rank {}",
                 candidate.rank
             )));
-        }
-        if !is_candidate_active_for_period(candidate.latest_eligible_publication_at, end) {
-            return Err(candidate_error(
-                "latest_eligible_publication_at must lie in the half-open interval [end - 30 days, end)",
-            ));
         }
         if candidate.pubkey.len() != 64
             || !candidate

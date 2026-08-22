@@ -40,6 +40,27 @@ pub fn build_announcement_message(
     Ok(message)
 }
 
+pub fn build_legacy_announcement_message(
+    award_name: &str,
+    winner_name: &str,
+    creator_link: &str,
+) -> Result<String, AppError> {
+    let winner_name = sanitized_display_name(winner_name);
+    let prefix = format!("{award_name}: ");
+    let suffix = format!(" earned this badge.\n{creator_link}");
+    let immutable_units = utf16_units(&prefix) + utf16_units(&suffix);
+    let name_budget = DISCORD_CONTENT_MAX_UTF16_UNITS
+        .checked_sub(immutable_units)
+        .filter(|budget| *budget > 0)
+        .ok_or_else(|| {
+            AppError::Discord(
+                "award label and full creator link exceed Discord's content limit".into(),
+            )
+        })?;
+    let winner_name = bounded_display_name(&winner_name, name_budget);
+    Ok(format!("{prefix}{winner_name}{suffix}"))
+}
+
 pub fn build_webhook_payload(message: &str) -> String {
     serde_json::json!({
         "content": message,

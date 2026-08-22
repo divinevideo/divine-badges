@@ -320,24 +320,19 @@ fn divine_api_rejects_more_entries_than_requested() {
 }
 
 #[test]
-fn divine_api_enforces_the_canonical_half_open_activity_proof() {
+fn divine_api_preserves_activity_proofs_for_per_candidate_filtering() {
     let (_, end) = exact_period();
-    let accepted_lower_bound = end - chrono::Duration::days(30);
+    let mut inactive = valid_diviner_candidate(1);
+    inactive.latest_eligible_publication_at = end - chrono::Duration::days(31);
+    let active = valid_diviner_candidate(2);
 
-    let mut accepted = valid_diviner_candidate(1);
-    accepted.latest_eligible_publication_at = accepted_lower_bound;
-    assert!(validate_candidates(vec![accepted], 1).is_ok());
+    let candidates = validate_candidates(vec![inactive.clone(), active], 10).unwrap();
 
-    for invalid in [
-        accepted_lower_bound - chrono::Duration::seconds(1),
-        end,
-        end + chrono::Duration::seconds(1),
-    ] {
-        let mut candidate = valid_diviner_candidate(1);
-        candidate.latest_eligible_publication_at = invalid;
-        let error = validate_candidates(vec![candidate], 1).unwrap_err();
-        assert!(error.to_string().contains("latest_eligible_publication_at"));
-    }
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(
+        candidates[0].latest_eligible_publication_at,
+        inactive.latest_eligible_publication_at
+    );
 }
 
 #[test]

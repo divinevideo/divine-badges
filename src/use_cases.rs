@@ -1,7 +1,7 @@
 use crate::awards::award_for_period_kind;
 use crate::clock::{Clock, SystemClock};
 use crate::config::AppConfig;
-use crate::discord::build_announcement_message;
+use crate::discord::{build_announcement_message, build_legacy_announcement_message};
 use crate::eligibility::{is_candidate_active_for_period, is_diviner_award_excluded_creator};
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
@@ -334,24 +334,29 @@ fn announcement_message(
         .as_deref()
         .or(run.winner_name.as_deref())
         .unwrap_or(winner_pubkey);
-    let positive_reactors = required_receipt_count(run.positive_reactors, "positive reactors")?;
-    let commenters = required_receipt_count(run.distinct_commenters, "commenters")?;
-    let reposts = required_receipt_count(run.distinct_reposters, "reposts")?;
-    let unique_viewers = required_receipt_count(run.unique_viewers, "unique viewers")?;
-    build_announcement_message(
-        award.badge_name,
-        winner_display,
-        positive_reactors,
-        commenters,
-        reposts,
-        unique_viewers,
-        &config.creator_link(run.winner_nip05.as_deref(), winner_pubkey),
-    )
+    let creator_link = config.creator_link(run.winner_nip05.as_deref(), winner_pubkey);
+    match (
+        run.positive_reactors,
+        run.distinct_commenters,
+        run.distinct_reposters,
+        run.unique_viewers,
+    ) {
+        (Some(positive_reactors), Some(commenters), Some(reposts), Some(unique_viewers)) => {
+            build_announcement_message(
+                award.badge_name,
+                winner_display,
+                receipt_count(positive_reactors, "positive reactors")?,
+                receipt_count(commenters, "commenters")?,
+                receipt_count(reposts, "reposts")?,
+                receipt_count(unique_viewers, "unique viewers")?,
+                &creator_link,
+            )
+        }
+        _ => build_legacy_announcement_message(award.badge_name, winner_display, &creator_link),
+    }
 }
 
-fn required_receipt_count(value: Option<i64>, field: &str) -> Result<u64, AppError> {
-    let value = value
-        .ok_or_else(|| AppError::Discord(format!("missing {field} in stored award receipt")))?;
+fn receipt_count(value: i64, field: &str) -> Result<u64, AppError> {
     u64::try_from(value)
         .map_err(|_| AppError::Discord(format!("invalid negative {field} in stored award receipt")))
 }
