@@ -22,19 +22,27 @@ pub fn save_badge_definition_sql() -> &'static str {
 }
 
 pub fn recent_completed_runs_sql() -> &'static str {
-    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND status = 'completed' ORDER BY period_key DESC LIMIT ?2"
+    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND status = 'completed' ORDER BY period_key DESC LIMIT ?2"
 }
 
 pub fn award_run_by_key_sql() -> &'static str {
-    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2"
+    "SELECT award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_message_sent, status, error_message FROM award_runs WHERE award_slug = ?1 AND period_key = ?2"
 }
 
 pub fn upsert_award_run_sql() -> &'static str {
-    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25) ON CONFLICT(award_slug, period_key) DO NOTHING"
+    "INSERT INTO award_runs (award_slug, period_key, period_type, winner_pubkey, winner_display_name, winner_name, winner_nip05, winner_picture, latest_eligible_publication_at, loops, views, unique_viewers, videos_with_views, positive_reactors, distinct_commenters, distinct_reposters, distinct_positive_engagers, engagement_tier, engagement_rate, score, award_event_id, prepared_award_event, discord_message_sent, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27) ON CONFLICT(award_slug, period_key) DO NOTHING"
 }
 
 pub fn save_award_run_sql() -> &'static str {
-    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, award_event_id = ?18, discord_message_sent = ?19, status = ?20, error_message = ?21, updated_at = ?22 WHERE award_slug = ?23 AND period_key = ?24"
+    "UPDATE award_runs SET period_type = ?1, winner_pubkey = ?2, winner_display_name = ?3, winner_name = ?4, winner_nip05 = ?5, winner_picture = ?6, latest_eligible_publication_at = ?7, loops = ?8, views = ?9, unique_viewers = ?10, videos_with_views = ?11, positive_reactors = ?12, distinct_commenters = ?13, distinct_reposters = ?14, distinct_positive_engagers = ?15, engagement_tier = ?16, engagement_rate = ?17, score = ?18, award_event_id = ?19, prepared_award_event = ?20, discord_message_sent = ?21, status = ?22, error_message = ?23, updated_at = ?24 WHERE award_slug = ?25 AND period_key = ?26"
+}
+
+pub fn claim_winner_sql() -> &'static str {
+    "UPDATE award_runs SET winner_pubkey = ?1, winner_display_name = ?2, winner_name = ?3, winner_nip05 = ?4, winner_picture = ?5, latest_eligible_publication_at = ?6, loops = ?7, views = ?8, unique_viewers = ?9, videos_with_views = ?10, positive_reactors = ?11, distinct_commenters = ?12, distinct_reposters = ?13, distinct_positive_engagers = ?14, engagement_tier = ?15, engagement_rate = ?16, score = ?17, error_message = NULL, updated_at = ?18 WHERE award_slug = ?19 AND period_key = ?20 AND winner_pubkey IS NULL"
+}
+
+pub fn claim_prepared_award_sql() -> &'static str {
+    "UPDATE award_runs SET prepared_award_event = ?1, award_event_id = ?2, status = 'award_prepared', error_message = NULL, updated_at = ?3 WHERE award_slug = ?4 AND period_key = ?5 AND prepared_award_event IS NULL"
 }
 
 pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
@@ -47,6 +55,7 @@ pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlVa
         optional_text(&run.winner_name),
         optional_text(&run.winner_nip05),
         optional_text(&run.winner_picture),
+        optional_datetime(run.latest_eligible_publication_at),
         optional_real(run.loops),
         optional_integer(run.views),
         optional_integer(run.unique_viewers),
@@ -59,6 +68,7 @@ pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlVa
         optional_real(run.engagement_rate),
         optional_real(run.score),
         optional_text(&run.award_event_id),
+        optional_text(&run.prepared_award_event),
         AwardRunSqlValue::Integer(i64::from(run.discord_message_sent)),
         text(run.status.as_str()),
         optional_text(&run.error_message),
@@ -75,6 +85,7 @@ pub fn award_run_update_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlVa
         optional_text(&run.winner_name),
         optional_text(&run.winner_nip05),
         optional_text(&run.winner_picture),
+        optional_datetime(run.latest_eligible_publication_at),
         optional_real(run.loops),
         optional_integer(run.views),
         optional_integer(run.unique_viewers),
@@ -87,12 +98,54 @@ pub fn award_run_update_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlVa
         optional_real(run.engagement_rate),
         optional_real(run.score),
         optional_text(&run.award_event_id),
+        optional_text(&run.prepared_award_event),
         AwardRunSqlValue::Integer(i64::from(run.discord_message_sent)),
         text(run.status.as_str()),
         optional_text(&run.error_message),
         text(now),
         text(&run.award_slug),
         text(&run.period_key),
+    ]
+}
+
+pub fn claim_winner_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
+    vec![
+        optional_text(&run.winner_pubkey),
+        optional_text(&run.winner_display_name),
+        optional_text(&run.winner_name),
+        optional_text(&run.winner_nip05),
+        optional_text(&run.winner_picture),
+        optional_datetime(run.latest_eligible_publication_at),
+        optional_real(run.loops),
+        optional_integer(run.views),
+        optional_integer(run.unique_viewers),
+        optional_integer(run.videos_with_views),
+        optional_integer(run.positive_reactors),
+        optional_integer(run.distinct_commenters),
+        optional_integer(run.distinct_reposters),
+        optional_integer(run.distinct_positive_engagers),
+        optional_integer(run.engagement_tier),
+        optional_real(run.engagement_rate),
+        optional_real(run.score),
+        text(now),
+        text(&run.award_slug),
+        text(&run.period_key),
+    ]
+}
+
+pub fn claim_prepared_award_bindings(
+    award_slug: &str,
+    period_key: &str,
+    prepared_award_event: &str,
+    award_event_id: &str,
+    now: &str,
+) -> Vec<AwardRunSqlValue> {
+    vec![
+        text(prepared_award_event),
+        text(award_event_id),
+        text(now),
+        text(award_slug),
+        text(period_key),
     ]
 }
 
@@ -107,6 +160,12 @@ fn optional_text(value: &Option<String>) -> AwardRunSqlValue {
 fn optional_integer(value: Option<i64>) -> AwardRunSqlValue {
     value
         .map(AwardRunSqlValue::Integer)
+        .unwrap_or(AwardRunSqlValue::Null)
+}
+
+fn optional_datetime(value: Option<chrono::DateTime<chrono::Utc>>) -> AwardRunSqlValue {
+    value
+        .map(|value| text(&value.to_rfc3339()))
         .unwrap_or(AwardRunSqlValue::Null)
 }
 
@@ -126,6 +185,7 @@ mod d1_repository {
 
     use crate::error::AppError;
     use crate::models::{AwardRun, BadgeDefinitionRecord};
+    use crate::nostr::SignedNostrEvent;
     use crate::ports::AwardRepository;
     use crate::repository::AwardRunSqlValue;
     use crate::state::AwardRunStatus;
@@ -157,6 +217,7 @@ mod d1_repository {
         winner_name: Option<String>,
         winner_nip05: Option<String>,
         winner_picture: Option<String>,
+        latest_eligible_publication_at: Option<chrono::DateTime<chrono::Utc>>,
         loops: Option<f64>,
         views: Option<i64>,
         unique_viewers: Option<i64>,
@@ -169,6 +230,7 @@ mod d1_repository {
         engagement_rate: Option<f64>,
         score: Option<f64>,
         award_event_id: Option<String>,
+        prepared_award_event: Option<String>,
         discord_message_sent: i64,
         status: String,
         error_message: Option<String>,
@@ -294,6 +356,53 @@ mod d1_repository {
             self.load_run(&run.award_slug, &run.period_key)
                 .await?
                 .ok_or_else(|| AppError::Repository("missing saved award run".into()))
+        }
+
+        async fn claim_winner(&self, proposed: &AwardRun) -> Result<AwardRun, AppError> {
+            let now = now_string();
+            let bindings =
+                award_run_bindings_as_js(crate::repository::claim_winner_bindings(proposed, &now))?;
+            self.db
+                .prepare(crate::repository::claim_winner_sql())
+                .bind(&bindings)
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+
+            self.load_run(&proposed.award_slug, &proposed.period_key)
+                .await?
+                .ok_or_else(|| AppError::Repository("missing claimed winner run".into()))
+        }
+
+        async fn claim_prepared_award(
+            &self,
+            award_slug: &str,
+            period_key: &str,
+            proposed: &SignedNostrEvent,
+        ) -> Result<AwardRun, AppError> {
+            let now = now_string();
+            let serialized = serde_json::to_string(proposed)
+                .map_err(|error| AppError::Repository(error.to_string()))?;
+            let bindings =
+                award_run_bindings_as_js(crate::repository::claim_prepared_award_bindings(
+                    award_slug,
+                    period_key,
+                    &serialized,
+                    &proposed.id,
+                    &now,
+                ))?;
+            self.db
+                .prepare(crate::repository::claim_prepared_award_sql())
+                .bind(&bindings)
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+
+            self.load_run(award_slug, period_key)
+                .await?
+                .ok_or_else(|| AppError::Repository("missing prepared award run".into()))
         }
 
         async fn load_recent_completed_runs(
@@ -499,6 +608,7 @@ mod d1_repository {
                 winner_name: value.winner_name,
                 winner_nip05: value.winner_nip05,
                 winner_picture: value.winner_picture,
+                latest_eligible_publication_at: value.latest_eligible_publication_at,
                 loops: value.loops,
                 views: value.views,
                 unique_viewers: value.unique_viewers,
@@ -511,6 +621,7 @@ mod d1_repository {
                 engagement_rate: value.engagement_rate,
                 score: value.score,
                 award_event_id: value.award_event_id,
+                prepared_award_event: value.prepared_award_event,
                 discord_message_sent: value.discord_message_sent != 0,
                 status: AwardRunStatus::from_str(&value.status).ok_or_else(|| {
                     AppError::Repository(format!("unknown award run status {}", value.status))

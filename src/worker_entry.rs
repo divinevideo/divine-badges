@@ -5,7 +5,7 @@ mod wasm_entry {
     use crate::clock::{Clock, SystemClock};
     use crate::config::{binding_string, AppConfig};
     use crate::discord::WasmDiscordClient;
-    use crate::divine_api::{WasmActivityClient, WasmDivinerCandidatesClient};
+    use crate::divine_api::WasmDivinerCandidatesClient;
     use crate::landing_page::{build_view, render_page};
     use crate::nip19::encode_npub;
     use crate::profile::{build_profile_event, DIVINE_BADGES_PROFILE};
@@ -52,7 +52,6 @@ mod wasm_entry {
         let database = env.d1("DB").map_err(|error| error.to_string())?;
         let repository = D1AwardRepository::new(database);
         let candidates = WasmDivinerCandidatesClient::new(config.divine_api_base_url.clone());
-        let activity = WasmActivityClient::new(config.divine_api_base_url.clone());
         let publisher =
             WasmRelayClient::new(config.divine_relay_url.clone(), &config.nostr_issuer_nsec)
                 .map_err(|error| error.to_string())?;
@@ -64,7 +63,6 @@ mod wasm_entry {
             &config,
             &repository,
             &candidates,
-            &activity,
             &publisher,
             &discord,
         )

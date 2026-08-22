@@ -1,8 +1,8 @@
 use chrono::{TimeZone, Utc};
 use divine_badges::awards::award_catalog;
 use divine_badges::divine_api::{
-    build_diviner_candidates_url, build_latest_video_url, parse_diviner_candidates_response,
-    ranked_candidates_for_period, validate_diviner_candidates_response,
+    build_diviner_candidates_url, parse_diviner_candidates_response, ranked_candidates_for_period,
+    validate_diviner_candidates_response,
 };
 use divine_badges::error::AppError;
 use divine_badges::models::{DivinerCandidate, DivinerCandidatesResponse};
@@ -22,6 +22,7 @@ fn valid_diviner_candidate(rank: u64) -> DivinerCandidate {
         display_name: "Ori3".into(),
         nip05: None,
         picture: "".into(),
+        latest_eligible_publication_at: Utc.with_ymd_and_hms(2026, 8, 10, 12, 0, 0).unwrap(),
         views: 100,
         unique_viewers: 50,
         loops: 136.0,
@@ -77,6 +78,7 @@ fn display_name_falls_back_to_name_then_pubkey() {
         name: "ori3".into(),
         nip05: None,
         picture: "".into(),
+        latest_eligible_publication_at: Utc.with_ymd_and_hms(2026, 8, 10, 12, 0, 0).unwrap(),
         loops: 136.0,
         views: 100,
         unique_viewers: 50,
@@ -127,6 +129,7 @@ fn divine_api_parsing_preserves_complete_ranking_receipt() {
           "name": "ori3",
           "nip05": "ori3@divine.video",
           "picture": "",
+          "latest_eligible_publication_at": "2026-08-10T12:00:00Z",
           "loops": 136.0,
           "views": 18446744073709551615,
           "unique_viewers": 9223372036854775808,
@@ -182,6 +185,7 @@ fn divine_api_parsing_rejects_partial_score_receipt() {
         "display_name": "Ori3",
         "nip05": null,
         "picture": "",
+        "latest_eligible_publication_at": "2026-08-10T12:00:00Z",
         "views": 100,
         "unique_viewers": 50,
         "loops": 136.0,
@@ -255,6 +259,7 @@ fn divine_api_rejects_response_for_a_different_exact_period() {
         "display_name": "Ori3",
         "nip05": null,
         "picture": "",
+        "latest_eligible_publication_at": "2026-08-10T12:00:00Z",
         "views": 100,
         "unique_viewers": 50,
         "loops": 136.0,
@@ -315,20 +320,24 @@ fn divine_api_rejects_more_entries_than_requested() {
 }
 
 #[test]
-fn latest_video_url_requests_the_latest_video_before_the_period_end() {
-    let period_end = Utc.with_ymd_and_hms(2026, 8, 22, 0, 0, 0).unwrap();
+fn divine_api_enforces_the_canonical_half_open_activity_proof() {
+    let (_, end) = exact_period();
+    let accepted_lower_bound = end - chrono::Duration::days(30);
 
-    let url = build_latest_video_url(
-        "https://api.divine.video",
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        period_end,
-    )
-    .unwrap();
+    let mut accepted = valid_diviner_candidate(1);
+    accepted.latest_eligible_publication_at = accepted_lower_bound;
+    assert!(validate_candidates(vec![accepted], 1).is_ok());
 
-    assert_eq!(
-        url.as_str(),
-        "https://api.divine.video/api/users/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/videos?sort=published&limit=1&before=1787356800"
-    );
+    for invalid in [
+        accepted_lower_bound - chrono::Duration::seconds(1),
+        end,
+        end + chrono::Duration::seconds(1),
+    ] {
+        let mut candidate = valid_diviner_candidate(1);
+        candidate.latest_eligible_publication_at = invalid;
+        let error = validate_candidates(vec![candidate], 1).unwrap_err();
+        assert!(error.to_string().contains("latest_eligible_publication_at"));
+    }
 }
 
 #[test]

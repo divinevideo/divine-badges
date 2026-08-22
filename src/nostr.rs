@@ -1,7 +1,7 @@
 use chrono::Utc;
 use k256::schnorr::signature::hazmat::PrehashSigner;
 use k256::schnorr::SigningKey;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::awards::AwardDefinition;
@@ -28,7 +28,7 @@ pub trait RelayPublisher {
     fn publish(&self, event: &SignedNostrEvent) -> Result<String, String>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedNostrEvent {
     pub id: String,
     pub pubkey: String,

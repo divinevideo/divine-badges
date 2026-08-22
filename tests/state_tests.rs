@@ -41,3 +41,12 @@ fn no_active_creator_transitions_to_skipped_inactive() {
         AwardRunStatus::SkippedInactive
     );
 }
+
+#[test]
+fn award_prepared_status_round_trips_through_storage_text() {
+    assert_eq!(AwardRunStatus::AwardPrepared.as_str(), "award_prepared");
+    assert_eq!(
+        AwardRunStatus::from_str("award_prepared"),
+        Some(AwardRunStatus::AwardPrepared)
+    );
+}

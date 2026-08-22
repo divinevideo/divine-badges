@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 
 use crate::awards::AwardDefinition;
 use crate::error::AppError;
-use crate::models::{AwardRun, BadgeDefinitionRecord, CreatorLatestVideo, DivinerCandidate};
-use crate::nostr::DefinitionPublishResult;
+use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
+use crate::nostr::{DefinitionPublishResult, SignedNostrEvent};
 
 #[async_trait(?Send)]
 pub trait AwardRepository {
@@ -19,6 +19,13 @@ pub trait AwardRepository {
     async fn save_badge_definition(&self, record: &BadgeDefinitionRecord) -> Result<(), AppError>;
     async fn upsert_award_run(&self, run: AwardRun) -> Result<AwardRun, AppError>;
     async fn save_award_run(&self, run: &AwardRun) -> Result<AwardRun, AppError>;
+    async fn claim_winner(&self, proposed: &AwardRun) -> Result<AwardRun, AppError>;
+    async fn claim_prepared_award(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        proposed: &SignedNostrEvent,
+    ) -> Result<AwardRun, AppError>;
     async fn load_recent_completed_runs(
         &self,
         award_slug: &str,
@@ -77,15 +84,6 @@ pub trait DivinerCandidatesClient {
 }
 
 #[async_trait(?Send)]
-pub trait CreatorActivityClient {
-    async fn latest_video_before(
-        &self,
-        pubkey: &str,
-        period_end: DateTime<Utc>,
-    ) -> Result<Option<CreatorLatestVideo>, AppError>;
-}
-
-#[async_trait(?Send)]
 pub trait BadgePublisher {
     async fn publish_definition(
         &self,
@@ -94,12 +92,14 @@ pub trait BadgePublisher {
         thumb_url: &str,
     ) -> Result<DefinitionPublishResult, AppError>;
 
-    async fn publish_award(
+    fn prepare_award(
         &self,
         badge_coordinate: &str,
         winner_pubkey: &str,
         period_key: &str,
-    ) -> Result<String, AppError>;
+    ) -> Result<SignedNostrEvent, AppError>;
+
+    async fn publish_prepared_award(&self, event: &SignedNostrEvent) -> Result<String, AppError>;
 }
 
 #[async_trait(?Send)]

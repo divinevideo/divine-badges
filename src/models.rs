@@ -14,6 +14,7 @@ pub struct AwardRun {
     pub winner_name: Option<String>,
     pub winner_nip05: Option<String>,
     pub winner_picture: Option<String>,
+    pub latest_eligible_publication_at: Option<DateTime<Utc>>,
     pub loops: Option<f64>,
     pub views: Option<i64>,
     pub unique_viewers: Option<i64>,
@@ -26,6 +27,7 @@ pub struct AwardRun {
     pub engagement_rate: Option<f64>,
     pub score: Option<f64>,
     pub award_event_id: Option<String>,
+    pub prepared_award_event: Option<String>,
     pub discord_message_sent: bool,
     pub status: AwardRunStatus,
     pub error_message: Option<String>,
@@ -42,6 +44,7 @@ impl AwardRun {
             winner_name: None,
             winner_nip05: None,
             winner_picture: None,
+            latest_eligible_publication_at: None,
             loops: None,
             views: None,
             unique_viewers: None,
@@ -54,6 +57,7 @@ impl AwardRun {
             engagement_rate: None,
             score: None,
             award_event_id: None,
+            prepared_award_event: None,
             discord_message_sent: false,
             status: AwardRunStatus::Pending,
             error_message: None,
@@ -128,6 +132,7 @@ pub struct DivinerCandidate {
     #[serde(default)]
     pub nip05: Option<String>,
     pub picture: String,
+    pub latest_eligible_publication_at: DateTime<Utc>,
     pub views: u64,
     pub unique_viewers: u64,
     pub loops: f64,
@@ -152,9 +157,4 @@ impl DivinerCandidate {
             self.pubkey.clone()
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CreatorLatestVideo {
-    pub published_at: DateTime<Utc>,
 }

@@ -2,8 +2,9 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use k256::schnorr::VerifyingKey;
 use url::Url;
 
+use crate::eligibility::is_candidate_active_for_period;
 use crate::error::AppError;
-use crate::models::{CreatorLatestVideo, DivinerCandidate, DivinerCandidatesResponse};
+use crate::models::{DivinerCandidate, DivinerCandidatesResponse};
 
 const MIN_CANDIDATE_WINDOW: usize = 1;
 const MAX_CANDIDATE_WINDOW: usize = 100;
@@ -90,6 +91,11 @@ pub fn validate_diviner_candidates_response(
                 candidate.rank
             )));
         }
+        if !is_candidate_active_for_period(candidate.latest_eligible_publication_at, end) {
+            return Err(candidate_error(
+                "latest_eligible_publication_at must lie in the half-open interval [end - 30 days, end)",
+            ));
+        }
         if candidate.pubkey.len() != 64
             || !candidate
                 .pubkey
@@ -162,42 +168,6 @@ pub async fn ranked_candidates_for_period(
     candidates_from_http_response(status_code, &body, start, end, candidate_window)
 }
 
-pub fn build_latest_video_url(
-    base_url: &str,
-    pubkey: &str,
-    period_end: DateTime<Utc>,
-) -> Result<Url, AppError> {
-    let mut url = Url::parse(base_url).map_err(|err| AppError::Api(err.to_string()))?;
-    url.set_path(&format!("/api/users/{pubkey}/videos"));
-    url.query_pairs_mut()
-        .append_pair("sort", "published")
-        .append_pair("limit", "1")
-        .append_pair("before", &period_end.timestamp().to_string());
-    Ok(url)
-}
-
-pub fn parse_latest_video_response(body: &str) -> Result<Option<CreatorLatestVideo>, AppError> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(body).map_err(|err| AppError::Api(err.to_string()))?;
-
-    let first = parsed.as_array().and_then(|items| items.first()).cloned();
-
-    match first {
-        None => Ok(None),
-        Some(value) => {
-            let published_at = value
-                .get("published_at")
-                .and_then(|value| value.as_i64())
-                .ok_or_else(|| AppError::Api("missing published_at".into()))?;
-
-            let published_at = chrono::DateTime::<chrono::Utc>::from_timestamp(published_at, 0)
-                .ok_or_else(|| AppError::Api("invalid published_at".into()))?;
-
-            Ok(Some(CreatorLatestVideo { published_at }))
-        }
-    }
-}
-
 #[cfg(target_arch = "wasm32")]
 mod wasm_clients {
     use async_trait::async_trait;
@@ -205,12 +175,12 @@ mod wasm_clients {
     use worker::Fetch;
 
     use crate::error::AppError;
-    use crate::models::{CreatorLatestVideo, DivinerCandidate};
-    use crate::ports::{CreatorActivityClient, DivinerCandidatesClient};
+    use crate::models::DivinerCandidate;
+    use crate::ports::DivinerCandidatesClient;
 
     use super::{
-        build_diviner_candidates_url, build_latest_video_url, candidates_from_http_response,
-        ensure_successful_candidates_status, parse_latest_video_response,
+        build_diviner_candidates_url, candidates_from_http_response,
+        ensure_successful_candidates_status,
     };
 
     #[derive(Debug, Clone)]
@@ -247,45 +217,7 @@ mod wasm_clients {
             candidates_from_http_response(status_code, &body, start, end, candidate_window)
         }
     }
-
-    #[derive(Debug, Clone)]
-    pub struct WasmActivityClient {
-        base_url: String,
-    }
-
-    impl WasmActivityClient {
-        pub fn new(base_url: String) -> Self {
-            Self { base_url }
-        }
-    }
-
-    #[async_trait(?Send)]
-    impl CreatorActivityClient for WasmActivityClient {
-        async fn latest_video_before(
-            &self,
-            pubkey: &str,
-            period_end: DateTime<Utc>,
-        ) -> Result<Option<CreatorLatestVideo>, AppError> {
-            let url = build_latest_video_url(&self.base_url, pubkey, period_end)?;
-            let mut response = Fetch::Url(url)
-                .send()
-                .await
-                .map_err(|err| AppError::Api(err.to_string()))?;
-            if !(200..300).contains(&response.status_code()) {
-                return Err(AppError::Api(format!(
-                    "latest video request failed with {}",
-                    response.status_code()
-                )));
-            }
-
-            let body = response
-                .text()
-                .await
-                .map_err(|err| AppError::Api(err.to_string()))?;
-            parse_latest_video_response(&body)
-        }
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm_clients::{WasmActivityClient, WasmDivinerCandidatesClient};
+pub use wasm_clients::WasmDivinerCandidatesClient;
