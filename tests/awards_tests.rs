@@ -16,7 +16,8 @@ fn exact_period() -> (chrono::DateTime<Utc>, chrono::DateTime<Utc>) {
 
 fn valid_diviner_candidate(rank: u64) -> DivinerCandidate {
     DivinerCandidate {
-        pubkey: format!("{rank:064x}"),
+        // x-only public key for the secp256k1 secret key 1.
+        pubkey: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".into(),
         name: "ori3".into(),
         display_name: "Ori3".into(),
         nip05: None,
@@ -353,6 +354,18 @@ fn divine_api_rejects_noncanonical_candidate_pubkeys() {
         assert!(error.to_string().contains("reported rank 1"));
         assert!(error.to_string().contains("64 ASCII hexadecimal"));
     }
+}
+
+#[test]
+fn divine_api_rejects_64_hex_pubkeys_that_are_not_secp256k1_x_only_keys() {
+    let mut candidate = valid_diviner_candidate(1);
+    candidate.pubkey = "f".repeat(64);
+
+    let error = validate_candidates(vec![candidate], 10).unwrap_err();
+    assert!(error.to_string().contains("candidate at position 1"));
+    assert!(error.to_string().contains("reported rank 1"));
+    assert!(error.to_string().contains("valid secp256k1 x-only"));
+    assert!(!error.to_string().contains(&"f".repeat(64)));
 }
 
 #[test]

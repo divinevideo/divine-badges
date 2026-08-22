@@ -1,4 +1,5 @@
 use chrono::{DateTime, SecondsFormat, Utc};
+use k256::schnorr::VerifyingKey;
 use url::Url;
 
 use crate::error::AppError;
@@ -100,6 +101,13 @@ pub fn validate_diviner_candidates_response(
         {
             return Err(candidate_error(
                 "pubkey must contain exactly 64 ASCII hexadecimal characters",
+            ));
+        }
+        let pubkey_bytes = hex::decode(&candidate.pubkey)
+            .map_err(|_| candidate_error("pubkey hexadecimal decoding failed"))?;
+        if VerifyingKey::from_bytes(&pubkey_bytes).is_err() {
+            return Err(candidate_error(
+                "pubkey must be a valid secp256k1 x-only verifying key",
             ));
         }
         if !candidate.loops.is_finite() || candidate.loops < 0.0 {
