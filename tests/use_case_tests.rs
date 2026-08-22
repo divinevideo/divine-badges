@@ -5,6 +5,7 @@ use std::rc::Rc;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
+use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
 use divine_badges::error::AppError;
 use divine_badges::models::{
@@ -15,7 +16,7 @@ use divine_badges::ports::{
     AwardRepository, BadgePublisher, DiscordClient, DivinerCandidatesClient,
 };
 use divine_badges::state::AwardRunStatus;
-use divine_badges::use_cases::{run_award_tick, TickOutcome};
+use divine_badges::use_cases::{run_award_tick_with_clock, TickOutcome};
 use futures::executor::block_on;
 
 const FOUNDER: &str = "d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540";
@@ -34,6 +35,7 @@ struct FakeRepo {
     complete_before_mark_awarded: RefCell<bool>,
     complete_before_mark_award_failed: RefCell<bool>,
     prepare_before_mark_preparation_failed: RefCell<bool>,
+    discord_claim_times: RefCell<Vec<(DateTime<Utc>, DateTime<Utc>)>>,
 }
 
 impl Default for FakeRepo {
@@ -48,6 +50,7 @@ impl Default for FakeRepo {
             complete_before_mark_awarded: RefCell::new(false),
             complete_before_mark_award_failed: RefCell::new(false),
             prepare_before_mark_preparation_failed: RefCell::new(false),
+            discord_claim_times: RefCell::new(Vec::new()),
         }
     }
 }
@@ -393,6 +396,9 @@ impl AwardRepository for FakeRepo {
         now: DateTime<Utc>,
         lease_expires_at: DateTime<Utc>,
     ) -> Result<DiscordDeliveryClaim, AppError> {
+        self.discord_claim_times
+            .borrow_mut()
+            .push((now, lease_expires_at));
         let mut current = self
             .runs
             .borrow()
@@ -605,16 +611,53 @@ impl BadgePublisher for FakePublisher {
 struct FakeDiscord {
     messages: RefCell<Vec<String>>,
     failure: RefCell<Option<String>>,
+    timeouts: RefCell<Vec<std::time::Duration>>,
 }
 
 #[async_trait(?Send)]
 impl DiscordClient for FakeDiscord {
-    async fn post_message(&self, message: &str) -> Result<(), AppError> {
+    async fn post_message(
+        &self,
+        message: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), AppError> {
         self.messages.borrow_mut().push(message.into());
+        self.timeouts.borrow_mut().push(timeout);
         match self.failure.borrow().as_deref() {
             Some(error) => Err(AppError::Discord(error.into())),
             None => Ok(()),
         }
+    }
+}
+
+struct InFlightReclaimDiscord<'a> {
+    repo: &'a FakeRepo,
+    claim_time: DateTime<Utc>,
+    timeout: RefCell<Option<std::time::Duration>>,
+    reclaim_acquired: RefCell<Option<bool>>,
+}
+
+#[async_trait(?Send)]
+impl DiscordClient for InFlightReclaimDiscord<'_> {
+    async fn post_message(
+        &self,
+        _message: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), AppError> {
+        *self.timeout.borrow_mut() = Some(timeout);
+        let reclaim_time = self.claim_time + Duration::from_std(timeout).unwrap();
+        let competing_claim = self
+            .repo
+            .claim_discord_delivery(
+                "diviner_of_the_day",
+                "2026-04-14",
+                "competing-worker",
+                reclaim_time,
+                reclaim_time + Duration::minutes(5),
+            )
+            .await?;
+        *self.reclaim_acquired.borrow_mut() = Some(competing_claim.acquired);
+        Ok(())
     }
 }
 
@@ -727,7 +770,36 @@ async fn execute(
     publisher: &FakePublisher,
     discord: &FakeDiscord,
 ) -> Result<TickOutcome, AppError> {
-    run_award_tick(now, &config(), repo, candidates, publisher, discord).await
+    execute_with_claim_time(now, now, repo, candidates, publisher, discord).await
+}
+
+#[derive(Clone, Copy)]
+struct FakeClock(DateTime<Utc>);
+
+impl Clock for FakeClock {
+    fn now(&self) -> DateTime<Utc> {
+        self.0
+    }
+}
+
+async fn execute_with_claim_time(
+    tick_started_at: DateTime<Utc>,
+    claim_time: DateTime<Utc>,
+    repo: &FakeRepo,
+    candidates: &FakeCandidates,
+    publisher: &FakePublisher,
+    discord: &FakeDiscord,
+) -> Result<TickOutcome, AppError> {
+    run_award_tick_with_clock(
+        tick_started_at,
+        &FakeClock(claim_time),
+        &config(),
+        repo,
+        candidates,
+        publisher,
+        discord,
+    )
+    .await
 }
 
 fn tick() -> DateTime<Utc> {
@@ -1373,6 +1445,67 @@ fn worker_with_an_unexpired_discord_lease_does_not_publish_or_post() {
 }
 
 #[test]
+fn delayed_pipeline_claims_discord_from_fresh_claim_time() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        seed_prepared_run(&repo, AwardRunStatus::Awarded).await;
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let claim_time = tick() + Duration::minutes(12);
+
+        let outcome =
+            execute_with_claim_time(tick(), claim_time, &repo, &candidates, &publisher, &discord)
+                .await
+                .unwrap();
+
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(
+            repo.discord_claim_times.borrow().as_slice(),
+            &[(claim_time, claim_time + Duration::minutes(5))]
+        );
+    });
+}
+
+#[test]
+fn webhook_timeout_finishes_before_the_discord_lease_can_be_reclaimed() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        seed_prepared_run(&repo, AwardRunStatus::Awarded).await;
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let claim_time = tick() + Duration::minutes(12);
+        let discord = InFlightReclaimDiscord {
+            repo: &repo,
+            claim_time,
+            timeout: RefCell::new(None),
+            reclaim_acquired: RefCell::new(None),
+        };
+
+        let outcome = run_award_tick_with_clock(
+            tick(),
+            &FakeClock(claim_time),
+            &config(),
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
+
+        let timeout = discord.timeout.borrow().unwrap();
+        let (_, lease_expires_at) = repo.discord_claim_times.borrow()[0];
+        let lease_duration = (lease_expires_at - claim_time).to_std().unwrap();
+        assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
+        assert_eq!(timeout, std::time::Duration::from_secs(4 * 60));
+        assert!(timeout < lease_duration);
+        assert_eq!(lease_duration - timeout, std::time::Duration::from_secs(60));
+        assert_eq!(*discord.reclaim_acquired.borrow(), Some(false));
+    });
+}
+
+#[test]
 fn discord_claim_allows_one_live_worker_and_reclaims_after_expiry() {
     block_on(async {
         let repo = FakeRepo::default();
@@ -1455,7 +1588,10 @@ fn two_workers_reaching_discord_concurrently_allow_only_the_claimant_to_post() {
 
         for claim in [worker_a, worker_b] {
             if claim.acquired {
-                discord.post_message("one announcement").await.unwrap();
+                discord
+                    .post_message("one announcement", std::time::Duration::from_secs(1))
+                    .await
+                    .unwrap();
             }
         }
 

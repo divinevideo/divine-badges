@@ -13,8 +13,9 @@ pub fn build_announcement_message(
 #[cfg(target_arch = "wasm32")]
 mod wasm_client {
     use async_trait::async_trait;
+    use futures::future::{select, Either};
     use wasm_bindgen::JsValue;
-    use worker::{Fetch, Headers, Method, Request, RequestInit};
+    use worker::{AbortController, Delay, Fetch, Headers, Method, Request, RequestInit};
 
     use crate::error::AppError;
     use crate::ports::DiscordClient;
@@ -32,7 +33,11 @@ mod wasm_client {
 
     #[async_trait(?Send)]
     impl DiscordClient for WasmDiscordClient {
-        async fn post_message(&self, message: &str) -> Result<(), AppError> {
+        async fn post_message(
+            &self,
+            message: &str,
+            timeout: std::time::Duration,
+        ) -> Result<(), AppError> {
             let mut init = RequestInit::new();
             init.with_method(Method::Post);
             init.with_body(Some(JsValue::from_str(
@@ -47,10 +52,24 @@ mod wasm_client {
 
             let request = Request::new_with_init(&self.webhook_url, &init)
                 .map_err(|err| AppError::Discord(err.to_string()))?;
-            let response = Fetch::Request(request)
-                .send()
-                .await
-                .map_err(|err| AppError::Discord(err.to_string()))?;
+            let controller = AbortController::default();
+            let signal = controller.signal();
+            let fetch_request = Fetch::Request(request);
+            let fetch = fetch_request.send_with_signal(&signal);
+            let delay = Delay::from(timeout);
+            futures::pin_mut!(fetch, delay);
+            let response = match select(fetch, delay).await {
+                Either::Left((response, _)) => {
+                    response.map_err(|err| AppError::Discord(err.to_string()))?
+                }
+                Either::Right(((), _)) => {
+                    controller.abort();
+                    return Err(AppError::Discord(format!(
+                        "webhook request timed out after {} seconds",
+                        timeout.as_secs()
+                    )));
+                }
+            };
 
             if !(200..300).contains(&response.status_code()) {
                 return Err(AppError::Discord(format!(

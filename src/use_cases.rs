@@ -1,4 +1,5 @@
 use crate::awards::award_for_period_kind;
+use crate::clock::{Clock, SystemClock};
 use crate::config::AppConfig;
 use crate::discord::build_announcement_message;
 use crate::eligibility::{is_candidate_active_for_period, is_diviner_award_excluded_creator};
@@ -12,6 +13,7 @@ use chrono::{DateTime, Utc};
 
 const CANDIDATE_WINDOW: usize = 10;
 const DISCORD_DELIVERY_LEASE: chrono::Duration = chrono::Duration::minutes(5);
+const DISCORD_WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4 * 60);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TickOutcome {
@@ -31,6 +33,34 @@ where
     L: DivinerCandidatesClient,
     P: BadgePublisher,
     D: DiscordClient,
+{
+    run_award_tick_with_clock(
+        now,
+        &SystemClock,
+        config,
+        repository,
+        candidates,
+        publisher,
+        discord,
+    )
+    .await
+}
+
+pub async fn run_award_tick_with_clock<R, L, P, D, C>(
+    now: DateTime<Utc>,
+    clock: &C,
+    config: &AppConfig,
+    repository: &R,
+    candidates: &L,
+    publisher: &P,
+    discord: &D,
+) -> Result<TickOutcome, AppError>
+where
+    R: AwardRepository,
+    L: DivinerCandidatesClient,
+    P: BadgePublisher,
+    D: DiscordClient,
+    C: Clock,
 {
     let mut runs = Vec::new();
 
@@ -53,7 +83,7 @@ where
                 | AwardRunStatus::DiscordSending
                 | AwardRunStatus::AwardedDiscordPending
         ) {
-            runs.push(deliver_discord(now, &award, config, repository, discord, run).await?);
+            runs.push(deliver_discord(clock, &award, config, repository, discord, run).await?);
             continue;
         }
 
@@ -207,7 +237,7 @@ where
         run = repository
             .mark_awarded(award.slug, &period.key, &published_event_id)
             .await?;
-        runs.push(deliver_discord(now, &award, config, repository, discord, run).await?);
+        runs.push(deliver_discord(clock, &award, config, repository, discord, run).await?);
     }
 
     Ok(TickOutcome { runs })
@@ -312,8 +342,8 @@ fn announcement_message(
     ))
 }
 
-async fn deliver_discord<R, D>(
-    now: DateTime<Utc>,
+async fn deliver_discord<R, D, C>(
+    clock: &C,
     award: &crate::awards::AwardDefinition,
     config: &AppConfig,
     repository: &R,
@@ -323,21 +353,23 @@ async fn deliver_discord<R, D>(
 where
     R: AwardRepository,
     D: DiscordClient,
+    C: Clock,
 {
     if run.status == AwardRunStatus::Completed {
         return Ok(run);
     }
 
-    let lease_expires_at = now
+    let claim_token = new_discord_claim_token()?;
+    let claim_time = clock.now();
+    let lease_expires_at = claim_time
         .checked_add_signed(DISCORD_DELIVERY_LEASE)
         .ok_or_else(|| AppError::Repository("Discord delivery lease overflow".into()))?;
-    let claim_token = new_discord_claim_token()?;
     let claim = repository
         .claim_discord_delivery(
             &run.award_slug,
             &run.period_key,
             &claim_token,
-            now,
+            claim_time,
             lease_expires_at,
         )
         .await?;
@@ -348,7 +380,10 @@ where
     let message = announcement_message(award, config, &claim.run)?;
     // The lease prevents overlapping live deliveries. Discord HTTP acceptance and the D1
     // completion write cannot be atomic, so a crash between them can still duplicate after expiry.
-    match discord.post_message(&message).await {
+    match discord
+        .post_message(&message, DISCORD_WEBHOOK_TIMEOUT)
+        .await
+    {
         Ok(()) => {
             repository
                 .mark_completed(&run.award_slug, &run.period_key, &claim_token)

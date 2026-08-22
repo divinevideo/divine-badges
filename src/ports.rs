@@ -119,5 +119,9 @@ pub trait BadgePublisher {
 
 #[async_trait(?Send)]
 pub trait DiscordClient {
-    async fn post_message(&self, message: &str) -> Result<(), AppError>;
+    async fn post_message(
+        &self,
+        message: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), AppError>;
 }
