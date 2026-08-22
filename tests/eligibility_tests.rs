@@ -1,8 +1,11 @@
 use chrono::{TimeZone, Utc};
 use divine_badges::eligibility::{
     is_active_creator, is_diviner_award_excluded_creator, select_first_active_creator,
+    DIVINER_AWARD_EXCLUDED_PUBKEYS,
 };
 use divine_badges::models::{CreatorLatestVideo, LeaderboardCreator};
+use divine_badges::nip19::encode_npub;
+use std::collections::BTreeSet;
 
 #[test]
 fn creator_is_active_when_latest_published_video_is_within_30_days() {
@@ -74,4 +77,45 @@ fn winner_selection_skips_archive_accounts_until_it_finds_an_active_creator() {
     .unwrap();
 
     assert_eq!(winner.pubkey, "activepubkey");
+}
+
+#[test]
+fn documented_personnel_accounts_match_the_exclusion_list() {
+    let documented_accounts: Vec<(&str, &str)> =
+        include_str!("../docs/divine-staff-nostr-accounts.md")
+            .lines()
+            .filter(|line| line.starts_with("| npub1"))
+            .map(|line| {
+                let mut columns = line
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|cell| !cell.is_empty());
+                let npub = columns.next().expect("documented npub");
+                let hex = columns.next().expect("documented hex pubkey");
+                assert!(
+                    columns.next().is_none(),
+                    "unexpected roster column in {line}"
+                );
+                (npub, hex)
+            })
+            .collect();
+
+    assert_eq!(
+        documented_accounts.len(),
+        DIVINER_AWARD_EXCLUDED_PUBKEYS.len()
+    );
+
+    let documented_hex: BTreeSet<&str> = documented_accounts
+        .iter()
+        .map(|(npub, hex)| {
+            let encoded = encode_npub(hex).expect("documented hex pubkey should encode");
+            assert_eq!(encoded, *npub);
+            assert!(is_diviner_award_excluded_creator(hex));
+            assert!(is_diviner_award_excluded_creator(&hex.to_uppercase()));
+            *hex
+        })
+        .collect();
+    let excluded_hex: BTreeSet<&str> = DIVINER_AWARD_EXCLUDED_PUBKEYS.iter().copied().collect();
+
+    assert_eq!(documented_hex, excluded_hex);
 }

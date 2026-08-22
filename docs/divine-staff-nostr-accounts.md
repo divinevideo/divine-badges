@@ -1,0 +1,22 @@
+# Divine Personnel Nostr Accounts
+
+This is the canonical roster of Divine personnel accounts excluded from
+Diviner of the Day and the other automated community awards. A maintainer has
+verified the account ownership. The production exclusion list lives in
+`DIVINER_AWARD_EXCLUDED_PUBKEYS` in `src/eligibility.rs`.
+
+The eligibility test verifies that this roster and the production list contain
+the same keys and that every hex key encodes to its documented npub.
+
+| npub | hex pubkey |
+| --- | --- |
+| npub1m9d23lqwl78y3z2jf9dcqeyer5nlh9hdsef0ztx7m3dyaz66u4qq4stysk | d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540 |
+| npub1nna864c27hw7r4umga4v9j94gwcewqr964yg7nvxlteuxnqk0ccs0l3t00 | 9cfa7d570af5dde1d79b476ac2c8b543b1970065d5488f4d86faf3c34c167e31 |
+| npub1l3crr2qsee9s9dsetflywl8785yvqwrq8z75tdzrr7pdnvl4l7cqaphqsq | fc7031a810ce4b02b6195a7e477cfe3d08c0386038bd45b4431f82d9b3f5ffb0 |
+| npub1pmwz736ys3mfhjdld4r36xqwfc5qkz7dwxdkmfu3qqd7kucvludsrm4nu6 | 0edc2f474484769bc9bf6d471d180e4e280b0bcd719b6da791001beb730cff1b |
+| npub15l5atkgtzladdezjdnjc7zhej7uvzjpxaj7mctpe2hnwyk85qqxqjuecgm | a7e9d5d90b17fad6e4526ce58f0af997b8c14826ecbdbc2c3955e6e258f4000c |
+| npub14c67eplynu729jf2pwa5p3g84e9x4rspmc57h9gchj2pa559l9pslpzqs8 | ae35ec87e49f3ca2c92a0bbb40c507ae4a6a8e01de29eb9518bc941ed285f943 |
+| npub1gtcx2u3gjfms5pagjnxecz3e2ecf0pw4p32n09hp7u96d0f7yw0sppx4hk | 42f065722892770a07a894cd9c0a3956709785d50c553796e1f70ba6bd3e239f |
+| npub1mpzg8ylrk6w84d23rj3m2wm89ev86mun6mgr257t7g5rz0cuxzsqhe6f0d | d8448393e3b69c7ab5511ca3b53b672e587d6f93d6d03553cbf228313f1c30a0 |
+| npub138he9w0tumwpun4rnrmywlez06259938kz3nmjymvs8px7e9d0js8lrdr2 | 89ef92b9ebe6dc1e4ea398f6477f227e95429627b0a33dc89b640e137b256be5 |
+| npub199wma3u7u7z5jmms8jty3ujxvew5dquur404stqrg269s0d9ej6qzewzu3 | 295dbec79ee785496f703c9648f246665d46839c1d5f582c0342b4583da5ccb4 |
