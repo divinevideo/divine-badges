@@ -404,7 +404,7 @@ fn excluded_personnel_pubkey_does_not_receive_diviner_awards() {
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let leaderboard = FakeLeaderboard {
             creators: vec![
-                fake_creator(excluded_pubkey, "rabble", 900.0),
+                fake_creator(excluded_pubkey, "excluded personnel", 900.0),
                 fake_creator(next_creator_pubkey, "next creator", 800.0),
             ],
         };
