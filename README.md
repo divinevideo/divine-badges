@@ -6,7 +6,7 @@ A Rust Cloudflare Worker that awards Divine's automated creator badges. Every ni
 
 - **Diviner awards.** A scheduled tick issues three fixed awards — Diviner of the Day, Diviner of the Week, and Diviner of the Month — to the top-ranked active creator on the Divine leaderboard for each closed period.
 - **NIP-58 badges.** Awards are real Nostr badge events: a badge definition (`kind:30009`) published once by the issuer, and a badge award (`kind:8`) published to each winner. Winners are announced to a Discord webhook.
-- **Eligibility check.** The Worker walks the top candidates in leaderboard order and skips creators who have not published a video in the last 30 days, so a badge only lands on someone still active.
+- **Eligibility check.** The Worker walks the top candidates in leaderboard order and skips Divine personnel and creators who have not published a video in the last 30 days, so a badge only lands on an active community creator.
 - **Public landing page.** `GET /` renders recent Diviner award history from D1, linking each winner to their Divine creator page.
 - **Self-serve badge client.** Any logged-in Divine user can create their own badges (`kind:30009`) and award them (`kind:8`) through `/new`, `/me`, and `/b/:coord`. `/me` shows accepted, awarded, and created tabs; badge owners can edit a definition at `/b/:coord/edit` (the `d` identifier is preserved so the event stays replaceable).
 - **Relay-aware reads and writes.** Reads discover NIP-65 relay lists (`kind:10002`) from badge authors, profile authors, and the viewer, plus the seed Divine relay. Writes publish to the viewer's discovered write relays plus the Divine relay and any local overrides from `/relays`. Partial publish failures are surfaced rather than hidden.
@@ -21,7 +21,7 @@ The Worker has two entry points, both defined in `src/worker_entry.rs`:
 
 - **Scheduled (`scheduled`)** — driven by the cron trigger. On each tick the Worker computes which periods just closed (`src/period.rs`): the previous day always, the previous ISO week when the tick lands on a Monday, and the previous month when the tick lands on the 1st. For each closed period it:
   1. seeds the badge definition in D1 and records a pending award run;
-  2. fetches ranked creators from the Divine API (`GET /api/leaderboard/creators?period=…&limit=10`) and selects the first creator who published a video within the last 30 days (`GET /api/users/:pubkey/videos`);
+  2. fetches 20 ranked creators from the Divine API (`GET /api/leaderboard/creators?period=…&limit=20`), excludes the ten documented Divine personnel accounts, and selects the first active creator from the remaining ten-candidate window (`GET /api/users/:pubkey/videos`);
   3. publishes the badge definition (`kind:30009`) once, then the badge award (`kind:8`) to the Divine relay;
   4. announces the winner to Discord and marks the run completed.
 - **Fetch (`fetch`)** — serves the public landing page, the badge client pages and their JS assets, a `/healthz` check, the issuer avatar and `/pubkey`, and a bearer-authenticated `POST /admin/publish-profile` route that republishes the issuer's `kind:0` profile.
