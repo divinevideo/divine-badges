@@ -396,10 +396,10 @@ fn inactive_candidates_mark_run_skipped_without_publishing() {
 }
 
 #[test]
-fn excluded_founder_pubkey_does_not_receive_diviner_awards() {
+fn excluded_personnel_pubkey_does_not_receive_diviner_awards() {
     block_on(async {
         let repo = FakeRepo::default();
-        let excluded_pubkey = "d95aa8fc0eff8e488952495b8064991d27fb96ed8652f12cdedc5a4e8b5ae540";
+        let excluded_pubkey = DIVINER_AWARD_EXCLUDED_PUBKEYS[1];
         let next_creator_pubkey =
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let leaderboard = FakeLeaderboard {
@@ -465,6 +465,15 @@ fn excluded_personnel_pubkeys_do_not_shrink_candidate_window() {
             })
             .collect::<Vec<_>>();
         let mut latest_by_pubkey = HashMap::new();
+
+        for pubkey in DIVINER_AWARD_EXCLUDED_PUBKEYS {
+            latest_by_pubkey.insert(
+                pubkey.into(),
+                Some(CreatorLatestVideo {
+                    published_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 0, 0).unwrap(),
+                }),
+            );
+        }
 
         for index in 1..10 {
             let pubkey = format!("inactivepubkey{index}");
