@@ -677,7 +677,7 @@ mod d1_repository {
                 discord_claim_token: value.discord_claim_token,
                 discord_lease_expires_at: value.discord_lease_expires_at,
                 discord_message_sent: value.discord_message_sent != 0,
-                status: AwardRunStatus::from_str(&value.status).ok_or_else(|| {
+                status: value.status.parse::<AwardRunStatus>().map_err(|()| {
                     AppError::Repository(format!("unknown award run status {}", value.status))
                 })?,
                 error_message: value.error_message,

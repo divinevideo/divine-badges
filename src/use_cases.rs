@@ -2,7 +2,10 @@ use crate::awards::award_for_period_kind;
 use crate::clock::{Clock, SystemClock};
 use crate::config::AppConfig;
 use crate::discord::{build_announcement_message, build_legacy_announcement_message};
-use crate::eligibility::{is_candidate_active_for_period, is_diviner_award_excluded_creator};
+use crate::eligibility::{
+    is_candidate_active_for_period, is_diviner_award_excluded_creator,
+    DIVINER_AWARD_EXCLUDED_PUBKEYS,
+};
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
 use crate::nostr::{build_badge_award_tags, SignedNostrEvent};
@@ -13,7 +16,7 @@ use chrono::{DateTime, Utc};
 
 const CANDIDATE_WINDOW: usize = 10;
 const DISCORD_DELIVERY_LEASE: chrono::Duration = chrono::Duration::minutes(5);
-const DISCORD_WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4 * 60);
+const DISCORD_WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TickOutcome {
@@ -89,7 +92,11 @@ where
 
         if run.winner_pubkey.is_none() {
             let ranked = match candidates
-                .ranked_candidates(period.start, period.end, CANDIDATE_WINDOW)
+                .ranked_candidates(
+                    period.start,
+                    period.end,
+                    CANDIDATE_WINDOW + DIVINER_AWARD_EXCLUDED_PUBKEYS.len(),
+                )
                 .await
             {
                 Ok(creators) => creators,
@@ -399,15 +406,14 @@ where
     let message = match announcement_message(award, config, &claim.run) {
         Ok(message) => message,
         Err(err) => {
-            repository
+            return repository
                 .mark_discord_pending(
                     &claim.run.award_slug,
                     &claim.run.period_key,
                     &claim_token,
                     &err.to_string(),
                 )
-                .await?;
-            return Err(err);
+                .await;
         }
     };
     // The lease prevents overlapping live deliveries. Discord HTTP acceptance and the D1

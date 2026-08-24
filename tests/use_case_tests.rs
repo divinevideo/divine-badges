@@ -8,6 +8,7 @@ use divine_badges::awards::award_for_period_kind;
 use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
 use divine_badges::divine_api::ranked_candidates_for_period;
+use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
 use divine_badges::error::AppError;
 use divine_badges::models::{
     AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate,
@@ -830,8 +831,46 @@ fn passes_exact_closed_boundaries_and_window_to_ranked_candidates() {
             &[(
                 Utc.with_ymd_and_hms(2026, 4, 14, 0, 0, 0).unwrap(),
                 period_end(),
-                10,
+                CANDIDATE_WINDOW_WITH_EXCLUSIONS,
             )]
+        );
+    });
+}
+
+const CANDIDATE_WINDOW_WITH_EXCLUSIONS: usize = 20;
+
+#[test]
+fn excluded_personnel_do_not_consume_the_eligible_candidate_window() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut ranked = DIVINER_AWARD_EXCLUDED_PUBKEYS
+            .iter()
+            .enumerate()
+            .map(|(index, pubkey)| candidate(pubkey, "excluded personnel", index as u64 + 1))
+            .collect::<Vec<_>>();
+        ranked.extend((0..10).map(|index| {
+            let pubkey = format!("{index:064x}");
+            candidate(&pubkey, "eligible creator", index + 11)
+        }));
+        let expected_winner = ranked[DIVINER_AWARD_EXCLUDED_PUBKEYS.len()].pubkey.clone();
+        let candidates = FakeCandidates {
+            candidates: ranked,
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            candidates.calls.borrow()[0].2,
+            CANDIDATE_WINDOW_WITH_EXCLUSIONS
+        );
+        assert_eq!(
+            outcome.runs[0].winner_pubkey.as_deref(),
+            Some(expected_winner.as_str())
         );
     });
 }
@@ -1111,6 +1150,35 @@ fn legacy_discord_retry_with_an_incomplete_receipt_posts_a_fallback_and_complete
                 divine_badges::nip19::encode_npub(FIRST).unwrap()
             )
         );
+    });
+}
+
+#[test]
+fn invalid_discord_receipt_stays_pending_without_aborting_the_tick() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let mut run = run_with_winner(FIRST, "invalid receipt");
+        run.status = AwardRunStatus::AwardedDiscordPending;
+        run.positive_reactors = Some(-1);
+        repo.upsert_award_run(run).await.unwrap();
+        let candidates = FakeCandidates::default();
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+
+        let outcome = execute(tick(), &repo, &candidates, &publisher, &discord)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            outcome.runs[0].status,
+            AwardRunStatus::AwardedDiscordPending
+        );
+        assert!(outcome.runs[0]
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("invalid negative positive reactors"));
+        assert!(discord.messages.borrow().is_empty());
     });
 }
 
@@ -1604,9 +1672,12 @@ fn webhook_timeout_finishes_before_the_discord_lease_can_be_reclaimed() {
         let (_, lease_expires_at) = repo.discord_claim_times.borrow()[0];
         let lease_duration = (lease_expires_at - claim_time).to_std().unwrap();
         assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
-        assert_eq!(timeout, std::time::Duration::from_secs(4 * 60));
+        assert_eq!(timeout, std::time::Duration::from_secs(20));
         assert!(timeout < lease_duration);
-        assert_eq!(lease_duration - timeout, std::time::Duration::from_secs(60));
+        assert_eq!(
+            lease_duration - timeout,
+            std::time::Duration::from_secs(4 * 60 + 40)
+        );
         assert_eq!(*discord.reclaim_acquired.borrow(), Some(false));
     });
 }

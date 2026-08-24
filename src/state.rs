@@ -27,20 +27,24 @@ impl AwardRunStatus {
             Self::Completed => "completed",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Option<Self> {
+impl std::str::FromStr for AwardRunStatus {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "pending" => Some(Self::Pending),
-            "failed_fetch" => Some(Self::FailedFetch),
-            "failed_definition" => Some(Self::FailedDefinition),
-            "failed_award" => Some(Self::FailedAward),
-            "skipped_inactive" => Some(Self::SkippedInactive),
-            "award_prepared" => Some(Self::AwardPrepared),
-            "awarded" => Some(Self::Awarded),
-            "discord_sending" => Some(Self::DiscordSending),
-            "awarded_discord_pending" => Some(Self::AwardedDiscordPending),
-            "completed" => Some(Self::Completed),
-            _ => None,
+            "pending" => Ok(Self::Pending),
+            "failed_fetch" => Ok(Self::FailedFetch),
+            "failed_definition" => Ok(Self::FailedDefinition),
+            "failed_award" => Ok(Self::FailedAward),
+            "skipped_inactive" => Ok(Self::SkippedInactive),
+            "award_prepared" => Ok(Self::AwardPrepared),
+            "awarded" => Ok(Self::Awarded),
+            "discord_sending" => Ok(Self::DiscordSending),
+            "awarded_discord_pending" => Ok(Self::AwardedDiscordPending),
+            "completed" => Ok(Self::Completed),
+            _ => Err(()),
         }
     }
 }

@@ -14,6 +14,4 @@ pub enum AppError {
     Discord(String),
     #[error("unexpected empty Diviner candidates for period {0}")]
     EmptyCandidates(String),
-    #[error("no active creator found for period {0}")]
-    NoActiveCreator(String),
 }
