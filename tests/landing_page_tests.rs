@@ -40,6 +40,25 @@ fn render_page_groups_recent_history_by_award() {
 }
 
 #[test]
+fn hourly_status_copy_does_not_rewrite_winner_data() {
+    let html = render_page(&LandingPageView {
+        sections: vec![AwardHistorySection {
+            title: "Diviner of the Day",
+            description: "Daily winners from the closed UTC day.",
+            entries: vec![AwardHistoryEntry {
+                period_key: "2026-04-12".into(),
+                winner_name: "updated daily".into(),
+                winner_picture: None,
+                profile_url: "https://divine.video/example".into(),
+            }],
+        }],
+    });
+
+    assert!(html.contains("Live &middot; checked hourly"));
+    assert!(html.contains(">updated daily</a>"));
+}
+
+#[test]
 fn public_copy_explains_engagement_first_awards_and_exact_utc_periods() {
     let html = render_page(&LandingPageView { sections: vec![] });
     let profile_copy = DIVINE_BADGES_PROFILE.about.to_lowercase();
