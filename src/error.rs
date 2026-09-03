@@ -12,8 +12,6 @@ pub enum AppError {
     Relay(String),
     #[error("discord error: {0}")]
     Discord(String),
-    #[error("unexpected empty leaderboard for period {0}")]
-    EmptyLeaderboard(String),
-    #[error("no active creator found for period {0}")]
-    NoActiveCreator(String),
+    #[error("unexpected empty Diviner candidates for period {0}")]
+    EmptyCandidates(String),
 }

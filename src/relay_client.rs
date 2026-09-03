@@ -152,15 +152,21 @@ mod wasm_client {
             })
         }
 
-        async fn publish_award(
+        fn prepare_award(
             &self,
             badge_coordinate: &str,
             winner_pubkey: &str,
             period_key: &str,
-        ) -> Result<String, AppError> {
+        ) -> Result<SignedNostrEvent, AppError> {
             let unsigned = build_badge_award_event(badge_coordinate, winner_pubkey, period_key);
-            let signed = self.signer.sign(&unsigned).map_err(AppError::Relay)?;
-            self.publish_signed_event(signed).await
+            self.signer.sign(&unsigned).map_err(AppError::Relay)
+        }
+
+        async fn publish_prepared_award(
+            &self,
+            event: &SignedNostrEvent,
+        ) -> Result<String, AppError> {
+            self.publish_signed_event(event.clone()).await
         }
     }
 

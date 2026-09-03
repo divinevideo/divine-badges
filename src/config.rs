@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::nip19::encode_npub;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -18,8 +19,8 @@ impl AppConfig {
 }
 
 pub fn creator_link_for_base(base_url: &str, nip05: Option<&str>, pubkey: &str) -> String {
-    if let Some(username) = divine_username_from_nip05(nip05) {
-        return format!("https://{username}.divine.video");
+    if let Some(link) = safe_divine_profile_link(nip05) {
+        return link;
     }
 
     let base = base_url.trim_end_matches('/');
@@ -27,14 +28,38 @@ pub fn creator_link_for_base(base_url: &str, nip05: Option<&str>, pubkey: &str) 
     format!("{base}/{identifier}")
 }
 
-fn divine_username_from_nip05(nip05: Option<&str>) -> Option<String> {
-    let nip05 = nip05?.trim();
+fn safe_divine_profile_link(nip05: Option<&str>) -> Option<String> {
+    let nip05 = nip05?;
     let (local_part, domain) = nip05.split_once('@')?;
-    let username = local_part.trim();
-    if username.is_empty() || !domain.trim().eq_ignore_ascii_case("divine.video") {
+    if !domain.eq_ignore_ascii_case("divine.video") || !is_valid_dns_username(local_part) {
         return None;
     }
-    Some(username.to_string())
+    let username = local_part.to_ascii_lowercase();
+    let expected_host = format!("{username}.divine.video");
+    let link = format!("https://{expected_host}");
+    let parsed = Url::parse(&link).ok()?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some(expected_host.as_str())
+        || parsed.username() != ""
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+    Some(link)
+}
+
+fn is_valid_dns_username(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    (1..=63).contains(&bytes.len())
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
 }
 
 pub fn validate_base_url(value: &str) -> Result<(), AppError> {

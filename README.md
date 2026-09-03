@@ -1,10 +1,10 @@
 # Divine Badges
 
-A Rust Cloudflare Worker that awards Divine's automated creator badges. Every night it reads the Divine creator leaderboard, picks the top eligible creator, and publishes a NIP-58 badge award to Nostr — Diviner of the Day, Week, and Month. The same Worker also hosts a public badge client at `badges.divine.video` where any signed-in Divine user can browse, create, and award their own badges.
+A Rust Cloudflare Worker that awards Divine's automated creator badges. Every hour it checks for closed award periods, reads Divine's positive-engagement ranking, and publishes a NIP-58 badge award to Nostr — Diviner of the Day, Week, and Month. The same Worker also hosts a public badge client at `badges.divine.video` where any signed-in Divine user can browse, create, and award their own badges.
 
 ## Features
 
-- **Diviner awards.** A scheduled tick issues three fixed awards — Diviner of the Day, Diviner of the Week, and Diviner of the Month — to the top-ranked active creator on the Divine leaderboard for each closed period.
+- **Diviner awards.** A scheduled tick issues three fixed awards — Diviner of the Day, Diviner of the Week, and Diviner of the Month — to the top-ranked active community creator by positive engagement for each closed period.
 - **NIP-58 badges.** Awards are real Nostr badge events: a badge definition (`kind:30009`) published once by the issuer, and a badge award (`kind:8`) published to each winner. Winners are announced to a Discord webhook.
 - **Eligibility check.** The Worker walks the top candidates in leaderboard order and skips Divine personnel and creators who have not published a video in the last 30 days, so a badge only lands on an active community creator.
 - **Public landing page.** `GET /` renders recent Diviner award history from D1, linking each winner to their Divine creator page.
@@ -21,14 +21,14 @@ The Worker has two entry points, both defined in `src/worker_entry.rs`:
 
 - **Scheduled (`scheduled`)** — driven by the cron trigger. On each tick the Worker computes which periods just closed (`src/period.rs`): the previous day always, the previous ISO week when the tick lands on a Monday, and the previous month when the tick lands on the 1st. For each closed period it:
   1. seeds the badge definition in D1 and records a pending award run;
-  2. fetches 20 ranked creators from the Divine API (`GET /api/leaderboard/creators?period=…&limit=20`), excludes the ten documented Divine personnel accounts, and selects the first active creator from the remaining ten-candidate window (`GET /api/users/:pubkey/videos`);
+  2. fetches 20 ranked receipts from the Divine API (`GET /api/awards/diviner-candidates?start=…&end=…&limit=20`), excludes the ten documented Divine personnel accounts, and selects the first eligible creator while preserving upstream order;
   3. publishes the badge definition (`kind:30009`) once, then the badge award (`kind:8`) to the Divine relay;
   4. announces the winner to Discord and marks the run completed.
 - **Fetch (`fetch`)** — serves the public landing page, the badge client pages and their JS assets, a `/healthz` check, the issuer avatar and `/pubkey`, and a bearer-authenticated `POST /admin/publish-profile` route that republishes the issuer's `kind:0` profile.
 
 State lives in **D1** (`src/repository.rs`, schema under `migrations/`). Two tables back the award flow: `badge_definitions` holds each award's published definition event id and coordinate, and `award_runs` records one row per award per period with a status state machine (`pending`, `awarded`, `completed`, plus failure and Discord-retry states). A unique index on `(award_slug, period_key)` makes ticks idempotent, so a rerun after a partial failure resumes rather than double-awarding — for example, a completed award whose Discord announcement failed is retried without re-issuing the badge.
 
-The award-tick logic itself (`src/use_cases.rs`) is written against port traits (`src/ports.rs`), so leaderboard, activity, relay, Discord, and repository access are all injectable and unit-tested under `tests/` on the native target; the wasm build wires in the real Cloudflare-backed clients.
+The award-tick logic itself (`src/use_cases.rs`) is written against port traits (`src/ports.rs`), so candidate ranking, relay, Discord, and repository access are all injectable and unit-tested under `tests/` on the native target; the wasm build wires in the real Cloudflare-backed clients.
 
 ## Getting started
 
@@ -61,13 +61,17 @@ npm run check:wasm  # cargo check --target wasm32-unknown-unknown
 
 ## Configuration
 
-Runtime and deployment config live in `wrangler.toml`. The Worker is named `divine-badges`, is served at `badges.divine.video/*`, binds the D1 database as `DB`, and runs its scheduled tick daily at 00:05 UTC (`crons = ["5 0 * * *"]`).
+Runtime and deployment config live in `wrangler.toml`. The Worker is named `divine-badges`, is served at `badges.divine.video/*`, binds the D1 database as `DB`, and runs at minute 35 of every UTC hour (`crons = ["35 * * * *"]`). 00:35Z is the first attempt after daily aggregates settle; later hourly invocations are idempotent retries for incomplete closed-period runs and do not reissue completed awards.
+
+The scheduled issuer publishes the Diviner-of-the-day/week/month awards to the relay configured by `DIVINE_RELAY_URL`.
+
+After changing issuer profile copy, republish it through the authenticated `POST /admin/publish-profile` route as part of rollout. Deploying the Worker does not update the existing Nostr profile event by itself.
 
 Non-secret settings are committed as `[vars]` in `wrangler.toml`:
 
 | Var | Purpose |
 | --- | --- |
-| `DIVINE_API_BASE_URL` | Base URL for the Divine leaderboard and creator activity API |
+| `DIVINE_API_BASE_URL` | Base URL for the Divine award-candidate API |
 | `DIVINE_RELAY_URL` | Nostr relay the issuer publishes badge events to |
 | `DIVINE_BADGE_IMAGE_URL` | Default badge artwork used when seeding definitions |
 | `DIVINE_CREATOR_BASE_URL` | Base URL for winner creator links on the landing page |

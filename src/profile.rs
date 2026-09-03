@@ -13,7 +13,7 @@ pub struct ProfileMetadata {
 pub const DIVINE_BADGES_PROFILE: ProfileMetadata = ProfileMetadata {
     name: "divinebadges",
     display_name: "Divine Badges",
-    about: "Diviner of the Day, Week, Month. Badges for the loudest creators on Divine. Every day, every week, every month — no algorithm picks, just loops. https://badges.divine.video",
+    about: "Diviner of the Day, Week, and Month. We celebrate creators who spark positive reactions, comments, and reposts from real people. If nobody gets positive engagement, reach picks the winner. https://badges.divine.video",
     picture: "https://badges.divine.video/avatar.png",
     website: "https://badges.divine.video",
     nip05: Some("badges@divine.video"),

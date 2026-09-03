@@ -14,14 +14,31 @@ pub struct AwardRun {
     pub winner_name: Option<String>,
     pub winner_nip05: Option<String>,
     pub winner_picture: Option<String>,
+    pub latest_eligible_publication_at: Option<DateTime<Utc>>,
     pub loops: Option<f64>,
     pub views: Option<i64>,
     pub unique_viewers: Option<i64>,
     pub videos_with_views: Option<i64>,
+    pub positive_reactors: Option<i64>,
+    pub distinct_commenters: Option<i64>,
+    pub distinct_reposters: Option<i64>,
+    pub distinct_positive_engagers: Option<i64>,
+    pub engagement_tier: Option<i64>,
+    pub engagement_rate: Option<f64>,
+    pub score: Option<f64>,
     pub award_event_id: Option<String>,
+    pub prepared_award_event: Option<String>,
+    pub discord_claim_token: Option<String>,
+    pub discord_lease_expires_at: Option<DateTime<Utc>>,
     pub discord_message_sent: bool,
     pub status: AwardRunStatus,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiscordDeliveryClaim {
+    pub acquired: bool,
+    pub run: AwardRun,
 }
 
 impl AwardRun {
@@ -35,11 +52,22 @@ impl AwardRun {
             winner_name: None,
             winner_nip05: None,
             winner_picture: None,
+            latest_eligible_publication_at: None,
             loops: None,
             views: None,
             unique_viewers: None,
             videos_with_views: None,
+            positive_reactors: None,
+            distinct_commenters: None,
+            distinct_reposters: None,
+            distinct_positive_engagers: None,
+            engagement_tier: None,
+            engagement_rate: None,
+            score: None,
             award_event_id: None,
+            prepared_award_event: None,
+            discord_claim_token: None,
+            discord_lease_expires_at: None,
             discord_message_sent: false,
             status: AwardRunStatus::Pending,
             error_message: None,
@@ -99,39 +127,44 @@ impl BadgeDefinitionRecord {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct LeaderboardResponse {
-    pub period: String,
-    pub entries: Vec<LeaderboardCreator>,
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DivinerCandidatesResponse {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub entries: Vec<DivinerCandidate>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct LeaderboardCreator {
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DivinerCandidate {
     pub pubkey: String,
-    pub display_name: String,
     pub name: String,
+    pub display_name: String,
     #[serde(default)]
     pub nip05: Option<String>,
     pub picture: String,
+    pub latest_eligible_publication_at: DateTime<Utc>,
+    pub views: u64,
+    pub unique_viewers: u64,
     pub loops: f64,
-    pub views: i64,
-    pub unique_viewers: i64,
-    pub videos_with_views: i64,
+    pub videos_with_views: u64,
+    pub positive_reactors: u64,
+    pub distinct_commenters: u64,
+    pub distinct_reposters: u64,
+    pub distinct_positive_engagers: u64,
+    pub engagement_tier: u8,
+    pub engagement_rate: f64,
+    pub score: f64,
+    pub rank: u64,
 }
 
-impl LeaderboardCreator {
+impl DivinerCandidate {
     pub fn best_display_name(&self) -> String {
         if !self.display_name.trim().is_empty() {
             self.display_name.clone()
         } else if !self.name.trim().is_empty() {
             self.name.clone()
         } else {
-            self.pubkey.chars().take(8).collect()
+            self.pubkey.clone()
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CreatorLatestVideo {
-    pub published_at: DateTime<Utc>,
 }
