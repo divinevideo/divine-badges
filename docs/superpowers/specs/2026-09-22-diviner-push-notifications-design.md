@@ -1,7 +1,7 @@
 # Diviner of the Day Push Notifications — Design
 
 **Date:** 2026-09-22
-**Status:** Design approved, spec under review
+**Status:** Purpose and audiences stand. **The Phase 1–2 architecture below is superseded** — see "Correction, 2026-09-23".
 **Repos touched:** `divine-badges` (trigger, timing state), `divine-push-service` (delivery), `divine-funnelcake` (daily stats endpoint, Phase 4), `divine-mobile` (preferences toggles only)
 
 ## Purpose
@@ -18,9 +18,22 @@ Stated by the product owner: notify the winner; broadcast the winner to other us
 
 Assumed here, open to correction: broadcast to every registered token stays configuration-gated and off by default, because a daily unsolicited notification to the whole install base is the fastest route to uninstalls and OS-level notification blocks. Opt-in is the default broadcast audience.
 
-## Grounding — what already exists
+## Correction, 2026-09-23
 
-These facts were verified in the repositories and shape the design.
+The grounding below was taken from a **stale local checkout** of `divine-push-service`. Against `origin/main`, the delivery system already exists and this spec's Phase 1–2 design would duplicate it:
+
+- `divine-push-service/src/campaign_delivery.rs` polls `divine-engagement`'s internal delivery API with a Cloudflare Access service token, and is the enforcement point for consent, quiet hours, caps, device validity, and final idempotency.
+- Quiet hours already restrict delivery to the recipient's local 07:00–21:00 and defer the rest, which is most of what "a good time of day" asked for.
+- Timezone offsets are already stored per device token; campaign consent already exists and already defaults to off; `divine-mobile` already sends `campaignsEnabled`.
+- `divine-engagement` is a deployed campaign control plane with lifecycle, approvals, audit, holdouts, and a global pause.
+
+What remains true: the purpose, the audiences, the preference defaults, the risks, and the Phase 4 stats digest. What is superseded: the trigger-event transport, the bucket and dedup machinery, the `Campaign` and `Audience` types, and the phase breakdown. The implementation plan at `docs/superpowers/plans/2026-09-22-diviner-push-notifications.md` carries the corrected architecture — three additions to existing systems: an opt-in audience `divine-engagement` can resolve, a machine path for creating a campaign, and the `divine-badges` code that calls it.
+
+Phase 4's blocker also grew: campaigns carry one title and body for every recipient, so a per-creator stats digest needs a campaign data-model change as well as the funnelcake daily-stats endpoint.
+
+## Grounding — what already existed in the stale checkout
+
+These facts were verified against a local checkout that turned out to be behind `origin/main`. They are kept for the record; read them with the correction above.
 
 - `divine-push-service` is relay-driven. `src/nostr_listener.rs` subscribes to content kinds 1, 3, 7, 16 and control kinds 3079 (register), 3080 (deregister), 3083 (preferences). Its only HTTP surface is `/health` in `src/main.rs`. There is no HTTP ingress for sending, no broadcast path, no FCM topic use, and no handling of badge kinds.
 - `divine-mobile` already sends the device timezone. `mobile/lib/services/push_notification_service.dart:380` includes `timezoneOffsetMinutes` in the NIP-44 encrypted registration payload. The push service does not read this field today. Local-hour delivery therefore needs a service-side change only — no mobile change for timezone.
