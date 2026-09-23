@@ -21,7 +21,8 @@ Verified against `origin/main` on 2026-09-23.
 - `crates/clickhouse/src/diviner_awards.rs` already computes everything the digest needs. `period_views` reads `creator_daily_stats` for `views`, `unique_viewers`, `loops`, `videos_with_views` (`diviner_awards.rs:44-55`); `period_engagement` reads `diviner_daily_engagement` for `positive_reactors`, `distinct_commenters`, `distinct_reposters` (`diviner_awards.rs:56-66`). **Both are already period-scoped.** The digest endpoint is that pair of CTEs without the ranking and with paging — not a new query.
 - Placeholders are **positional `?`**, bound in an order documented in a doc comment on the builder (`diviner_awards.rs:5-14`). There is no `{name:Type}` syntax in this codebase.
 - `resolveSegment` refuses a disabled segment before any resolver runs (`src/segments/resolvers.ts:40`), dedupes resolved recipients by pubkey, and refuses an audience above `max_audience_size` (`src/segments/resolvers.ts:101-108`).
-- `explicit_pubkey_list` has `max_audience_size = 1000` (`migrations/0002_revisions_and_segments.sql:182-191`).
+- `explicit_pubkey_list` has `max_audience_size = 1000` (`migrations/0002_revisions_and_segments.sql:182-191`). Task 3 raises it to 5000.
+- Measured against production on 2026-09-23: active creators per closed UTC day run 2,049-3,216 (09-22: 2,920 with views, 2,927 when unioned with engagement). The whole creator pool is roughly 3,000, so nearly every creator is a daily recipient. A 1,000 cap would abort every run. `creator_daily_stats` holds 255,801 rows / 16.8 MiB and a one-day scan is ~10 ms, so the cap is an audience decision, not a performance one.
 - `divine-engagement` resolves campaign copy at lease time from `campaign_revisions.title/body` (`src/push/deliveries.ts:88-94`), joining only `campaign_revisions` and `campaigns`. `campaign_revisions` rows are immutable by trigger; `campaign_recipients` rows are not, and are keyed `(campaign_revision_id, recipient_pubkey)`.
 - `divine-badges` has no async test runtime: dev-dependencies are `pretty_assertions` only, and existing async tests use `futures::executor::block_on` (`tests/use_case_tests.rs:22`).
 
@@ -40,7 +41,7 @@ What *is* filtered is **who gets notified**: the recipient gate reuses `filter_v
 - The recipient gate composes `filter_video_public_aliased` via the existing activity CTE. Metric counts are the shared rollups and are not per-video filtered; see the section above.
 - The new funnelcake endpoint is public and read-only, like `diviner-candidates`, keyed by full 64-character lowercase hex pubkeys. It returns aggregate counts only — no identity-linked data, no last-activity timestamp, no device token.
 - Closed UTC periods only: bounds are exact `YYYY-MM-DDT00:00:00Z` strings, end-exclusive; open, future, or reversed periods are rejected with 400.
-- **One audience cap, 1000, everywhere**: the endpoint's reachable total, the digest job's page budget, the campaign's recipient list, and `explicit_pubkey_list.max_audience_size`. Exceeding it fails loudly; nothing truncates silently.
+- **One audience cap, 5000, everywhere**: the digest job's page budget (ten pages of 500), the campaign's recipient list, and `explicit_pubkey_list.max_audience_size`. Exceeding it fails loudly; nothing truncates silently. The endpoint is a cursor pager with no total; the cap binds the job that consumes it.
 - Per-recipient copy never bypasses approval: a revision stores the template a human approved, and an override applies only where that revision declares personalization.
 - `divine-push-service` remains the sole enforcement point for consent, quiet hours, caps, and device validity. `ALLOW_PRODUCTION_DELIVERY` and the global pause apply unchanged.
 - A digest goes only to creators with activity in the period. Nobody is notified that they got nothing.
@@ -49,10 +50,10 @@ What *is* filtered is **who gets notified**: the recipient gate reuses `filter_v
 ## Review Focus
 
 1. A creator whose every metric is zero receives no digest at all, rather than one reading "0 likes". (Task 1, Task 4)
-2. Offset paging over a day still being written must not duplicate or drop a creator — the order must be by a column that does not change. (Task 1, Task 4)
+2. Cursor paging over a day still being written must not duplicate or drop a creator — order by pubkey and walk by `pubkey > cursor`, so a creator arriving mid-run cannot shift the window. (Task 1, Task 4)
 3. An override on a campaign whose revision does not declare personalization must fall back to the approved template, and a delivery whose recipient row is missing must still lease. (Task 2)
 4. A stats fetch that fails partway must neither send to a truncated audience nor burn the day's claim, so the next tick can retry. (Task 4)
-5. More than 1000 active creators in one day must fail loudly rather than notify an arbitrary 1000 of them. (Task 1, Task 4)
+5. More than 5000 active creators in one day must fail loudly rather than notify an arbitrary 5000 of them. (Task 1, Task 4)
 
 ---
 
@@ -64,7 +65,7 @@ What *is* filtered is **who gets notified**: the recipient gate reuses `filter_v
 - Modify: `crates/clickhouse/src/lib.rs`, `crates/clickhouse/src/traits.rs`, `crates/clickhouse/src/client.rs`, `crates/api/src/router.rs`, `crates/api/src/openapi.rs`, and the LLM guide markdown in `crates/api/src/handlers.rs` (routed at `crates/api/src/router.rs:810`).
 
 **`divine-engagement`**
-- Create: `migrations/0008_per_recipient_copy.sql`
+- Create: `migrations/0008_per_recipient_copy.sql`, `migrations/0009_raise_personalized_audience_cap.sql`
 - Modify: `src/push/deliveries.ts`, `src/campaigns/automation.ts`
 - Create: `test/per-recipient-copy.test.ts`
 
@@ -84,7 +85,9 @@ What *is* filtered is **who gets notified**: the recipient gate reuses `filter_v
 
 **Interfaces:**
 - Consumes: the `period_views`, `period_engagement`, and `current_public_videos` CTEs of `build_diviner_candidates_sql` (`crates/clickhouse/src/diviner_awards.rs:44-110`).
-- Produces: `GET /api/awards/creator-period-stats?start=&end=&limit=&offset=`; `build_creator_period_stats_sql() -> String`; `CreatorPeriodStatsResponse { start, end, entries: Vec<CreatorPeriodStats> }` where `CreatorPeriodStats { pubkey, views, unique_viewers, loops, reactions, comments, reposts }`; `StatsQueries::get_creator_period_stats(start, end, limit, offset)`.
+- Produces: `GET /api/awards/creator-period-stats?start=&end=&limit=&after=`; `build_creator_period_stats_sql() -> String`; `CreatorPeriodStatsResponse { start, end, entries: Vec<CreatorPeriodStats> }` where `CreatorPeriodStats { pubkey, views, unique_viewers, loops, reactions, comments, reposts }`; `StatsQueries::get_creator_period_stats(start, end, limit, after)`.
+
+`after` is the last `pubkey` of the previous page, or the empty string for the first page. `limit` is 1..=500, default 100. The caller derives the next cursor from the last entry; there is no total and no offset, so a creator inserted mid-walk cannot shift the window.
 
 No `name` or `display_name`: profile enrichment is a separate trailing CTE in the award query, and the digest's copy never names the recipient.
 
@@ -101,16 +104,22 @@ Create `crates/clickhouse/src/creator_period_stats.rs`:
 
 /// Build the paged per-creator period stats query.
 ///
+/// Paging is a keyset walk on `pubkey`, never OFFSET: `video_author_pubkey` is
+/// the leading primary-key column of `creator_daily_stats`, so
+/// `video_author_pubkey > ?` seeks instead of scanning from the beginning, and
+/// a creator inserted mid-walk cannot shift the window.
+///
 /// Bind placeholders in this exact order:
 ///
 /// 1. views period start (inclusive)
 /// 2. views period end (exclusive)
-/// 3. engagement period start (inclusive)
-/// 4. engagement period end (exclusive)
-/// 5. activity anchor end for the lower bound (the query subtracts 30 days)
-/// 6. activity anchor end (exclusive)
-/// 7. page limit
-/// 8. page offset
+/// 3. views cursor (exclusive): `video_author_pubkey > ?`
+/// 4. engagement period start (inclusive)
+/// 5. engagement period end (exclusive)
+/// 6. engagement cursor (exclusive): `target_pubkey > toFixedString(?, 64)`
+/// 7. activity anchor end for the lower bound (the query subtracts 30 days)
+/// 8. activity anchor end (exclusive)
+/// 9. page limit
 #[must_use]
 pub fn build_creator_period_stats_sql() -> String {
     todo!("Step 3")
@@ -141,13 +150,16 @@ mod tests {
     }
 
     #[test]
-    fn paging_orders_by_a_column_that_late_writes_cannot_move() {
-        // Review Focus 2: ordering by views would reshuffle pages as the day's
-        // writes land, duplicating one creator and dropping another.
+    fn paging_is_a_keyset_walk_never_an_offset() {
+        // Review Focus 2: OFFSET over a day still being written can drop a
+        // creator when one arrives mid-walk. A cursor cannot.
         let sql = compact_sql(&build_creator_period_stats_sql());
         assert!(sql.contains("ORDER BY pubkey ASC"));
         assert!(!sql.contains("ORDER BY views"));
-        assert!(sql.contains("LIMIT ? OFFSET ?"));
+        assert!(sql.contains("video_author_pubkey > ?"));
+        assert!(sql.contains("target_pubkey > toFixedString(?, 64)"));
+        assert!(sql.contains("LIMIT ?"));
+        assert!(!sql.contains("OFFSET"));
     }
 
     #[test]
@@ -161,7 +173,7 @@ mod tests {
     fn every_placeholder_is_positional_and_counted() {
         // The bind-order doc comment above is only true if the count matches.
         let sql = build_creator_period_stats_sql();
-        assert_eq!(sql.matches('?').count(), 8);
+        assert_eq!(sql.matches('?').count(), 9);
     }
 }
 ```
@@ -173,7 +185,7 @@ Expected: FAIL — the `todo!()` panics with "not yet implemented".
 
 - [ ] **Step 3: Implement the SQL**
 
-Copy `build_diviner_candidates_sql` from `crates/clickhouse/src/diviner_awards.rs` and reduce it: keep `period_views`, `period_engagement`, `current_public_videos` with `filter_video_public_aliased("v")`, and the activity gate that joins them. Remove the scoring, ranking, `rank`, and profile-enrichment CTEs. Project `pubkey, views, unique_viewers, loops, positive_reactors AS reactions, distinct_commenters AS comments, distinct_reposters AS reposts`. Add `HAVING views > 0 OR reactions > 0 OR comments > 0 OR reposts > 0`, then `ORDER BY pubkey ASC`, then `LIMIT ? OFFSET ?`. Carry over the `-- clickhouse-guardrail:` comments on the clauses they annotate.
+Copy `build_diviner_candidates_sql` from `crates/clickhouse/src/diviner_awards.rs` and reduce it: keep `period_views`, `period_engagement`, `current_public_videos` with `filter_video_public_aliased("v")`, and the activity gate that joins them. Remove the scoring, ranking, `rank`, and profile-enrichment CTEs. Add `AND video_author_pubkey > ?` to `period_views` before its `GROUP BY`, and `AND target_pubkey > toFixedString(?, 64)` to `period_engagement`; both cut everything at or before the cursor, so they are equivalent to filtering the unioned result. Project `pubkey, views, unique_viewers, loops, positive_reactors AS reactions, distinct_commenters AS comments, distinct_reposters AS reposts`. Add `HAVING views > 0 OR reactions > 0 OR comments > 0 OR reposts > 0`, then `ORDER BY pubkey ASC`, then `LIMIT ?`. Carry over the `-- clickhouse-guardrail:` comments on the clauses they annotate.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -182,7 +194,7 @@ Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Add the client method and trait entry**
 
-Add `get_creator_period_stats(start, end, limit, offset)` to `ClickHouseClient` in `crates/clickhouse/src/client.rs` and to `StatsQueries` in `crates/clickhouse/src/traits.rs`, following `get_diviner_candidates` exactly, binding the eight placeholders in the documented order.
+Add `get_creator_period_stats(start, end, limit, after)` to `ClickHouseClient` in `crates/clickhouse/src/client.rs` and to `StatsQueries` in `crates/clickhouse/src/traits.rs`, following `get_diviner_candidates` exactly, binding the nine placeholders in the documented order.
 
 - [ ] **Step 6: Write the failing validation tests**
 
@@ -193,12 +205,12 @@ In `crates/api/src/creator_period_stats.rs`, mirroring the validation tests in `
 mod tests {
     use super::*;
 
-    fn query(start: &str, end: &str, limit: Option<&str>, offset: Option<&str>) -> CreatorPeriodStatsQuery {
+    fn query(start: &str, end: &str, limit: Option<&str>, after: Option<&str>) -> CreatorPeriodStatsQuery {
         CreatorPeriodStatsQuery {
             start: Some(start.to_string()),
             end: Some(end.to_string()),
             limit: limit.map(str::to_string),
-            offset: offset.map(str::to_string),
+            after: after.map(str::to_string),
         }
     }
 
@@ -206,17 +218,18 @@ mod tests {
     const END: &str = "2026-09-23T00:00:00Z";
 
     #[test]
-    fn accepts_one_closed_utc_day_with_paging() {
-        let validated = validate(query(START, END, Some("100"), Some("200"))).expect("valid");
-        assert_eq!(validated.limit, 100);
-        assert_eq!(validated.offset, 200);
+    fn accepts_one_closed_utc_day_with_a_cursor() {
+        let cursor = "a".repeat(64);
+        let validated = validate(query(START, END, Some("500"), Some(cursor.as_str()))).expect("valid");
+        assert_eq!(validated.limit, 500);
+        assert_eq!(validated.after, cursor);
     }
 
     #[test]
-    fn defaults_limit_to_100_and_offset_to_0() {
+    fn defaults_limit_to_100_and_cursor_to_empty() {
         let validated = validate(query(START, END, None, None)).expect("valid");
         assert_eq!(validated.limit, 100);
-        assert_eq!(validated.offset, 0);
+        assert_eq!(validated.after, "");
     }
 
     #[test]
@@ -230,16 +243,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_limit_above_100() {
-        assert!(validate(query(START, END, Some("500"), None)).is_err());
+    fn rejects_a_limit_above_500() {
+        assert!(validate(query(START, END, Some("501"), None)).is_err());
     }
 
     #[test]
-    fn rejects_an_offset_past_the_audience_cap() {
-        // Review Focus 5: 1000 is the cap everywhere. Paging past it is a
-        // refusal, not a silently different audience.
-        assert!(validate(query(START, END, Some("100"), Some("1000"))).is_err());
-        assert!(validate(query(START, END, Some("100"), Some("900"))).is_ok());
+    fn rejects_a_malformed_cursor() {
+        // Review Focus 2: the cursor is a full 64-character lowercase hex pubkey.
+        assert!(validate(query(START, END, None, Some("not-a-pubkey"))).is_err());
+        assert!(validate(query(START, END, None, Some("A".repeat(64).as_str()))).is_err());
     }
 }
 ```
@@ -251,7 +263,7 @@ Expected: FAIL — the module does not exist yet.
 
 - [ ] **Step 8: Implement the handler**
 
-Write `CreatorPeriodStatsQuery` (with `#[serde(deny_unknown_fields)]` and `Option<String>` raw params), `ValidatedCreatorPeriodStatsQuery`, a `CreatorPeriodStatsQueryError` enum, `validate`, and the axum handler, following `diviner_awards.rs` line for line: hand-rolled validation of the exact timestamp format, `Cache-Control: no-store` on success, the same `utoipa::path` annotation style. Limit is 1..=100; offset is 0..=900. Register the route in `crates/api/src/router.rs` and the path in `crates/api/src/openapi.rs` beside the diviner one.
+Write `CreatorPeriodStatsQuery` (with `#[serde(deny_unknown_fields)]` and `Option<String>` raw params), `ValidatedCreatorPeriodStatsQuery`, a `CreatorPeriodStatsQueryError` enum, `validate`, and the axum handler, following `diviner_awards.rs` line for line: hand-rolled validation of the exact timestamp format, `Cache-Control: no-store` on success, the same `utoipa::path` annotation style. Limit is 1..=500; `after` is empty or a 64-character lowercase hex pubkey. Register the route in `crates/api/src/router.rs` and the path in `crates/api/src/openapi.rs` beside the diviner one.
 
 - [ ] **Step 9: Run the tests to verify they pass**
 
@@ -449,11 +461,12 @@ git commit -m "feat(campaigns): resolve per-recipient copy for personalized camp
 This task **amends the prerequisite plan**. That plan's Task 3 test asserts `explicit_pubkey_list` is refused with 403 as non-allowlisted; the digest needs it allowed. Update that test to use a segment that is genuinely not on the allowlist (`internal_test_pubkeys`), and add `explicit_pubkey_list` to `AUTOMATION_ALLOWED_SEGMENTS`. Do this in the same commit, so neither repo has a moment with a failing suite.
 
 **Files:**
+- Create: `divine-engagement/migrations/0009_raise_personalized_audience_cap.sql`
 - Modify: `divine-engagement/src/campaigns/automation.ts`, `test/automation-api.test.ts`, `wrangler.toml`
 
 **Interfaces:**
 - Consumes: Task 2's columns; `createAutomatedCampaign` from the prerequisite plan.
-- Produces: an optional `personalizedRecipients: { pubkey, title?, body }[]` on the request, max **1000**, written to `campaign_recipients` with the revision created as `per_recipient`.
+- Produces: an optional `personalizedRecipients: { pubkey, title?, body }[]` on the request, max **5000**, written to `campaign_recipients` with the revision created as `per_recipient`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -511,7 +524,7 @@ describe("personalized automated campaigns", () => {
     expect(response.status).toBe(400);
   });
 
-  it("refuses more than 1000 personalized recipients", async () => {
+  it("refuses more than 5000 personalized recipients", async () => {
     // Review Focus 5: the schema cap, the segment cap, and the job's page
     // budget are the same number, so this can never 422 later at resolve.
     const response = await automationFetch(CREATE, {
@@ -520,7 +533,7 @@ describe("personalized automated campaigns", () => {
         automationKey: "creator-digest-too-many",
         segmentType: "explicit_pubkey_list",
         recipients: [],
-        personalizedRecipients: Array.from({ length: 1001 }, (_, i) => ({
+        personalizedRecipients: Array.from({ length: 5001 }, (_, i) => ({
           pubkey: (0xcc0000 + i).toString(16).padStart(64, "0"),
           body: "Yours",
         })),
@@ -556,7 +569,7 @@ In `src/campaigns/automation.ts`:
 
 ```ts
 /** The one audience cap: schema, segment, and the digest job all use it. */
-const MAX_PERSONALIZED_RECIPIENTS = 1000;
+const MAX_PERSONALIZED_RECIPIENTS = 5000;
 
 const personalizedRecipientSchema = z.object({
   pubkey: z.string().regex(/^[0-9a-f]{64}$/),
@@ -573,11 +586,24 @@ and on `automatedCampaignSchema`:
 
 In `createAutomatedCampaign`, when `personalizedRecipients` is present: refuse with 422 unless `segmentType === "explicit_pubkey_list"`; create the revision with `personalization = 'per_recipient'` at insert, never by update, since revisions are immutable; derive the recipient list from the personalized entries; and write `title_override` and `body_override` onto the recipient rows. Record the personalization and the recipient count in the audit reason.
 
+Create `migrations/0009_raise_personalized_audience_cap.sql`:
+
+```sql
+-- The digest's audience is the whole active-creator pool (~3,000/day measured
+-- 2026-09-23), which does not fit the original 1000 cap. Raise it to 5000 to
+-- match the schema, the job's page budget, and the segment resolver. Bump the
+-- version so a cached definition cannot serve the old cap.
+UPDATE segment_definitions
+   SET max_audience_size = 5000,
+       version = version + 1
+ WHERE name = 'explicit_pubkey_list';
+```
+
 Set `AUTOMATION_ALLOWED_SEGMENTS = "opted_in_push_audience,explicit_pubkey_list"` in `wrangler.toml`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- automation`
+Run: `npm run migrate:local && npm test -- automation`
 Expected: PASS — the prerequisite plan's 5 tests (one amended) plus 4 new.
 
 - [ ] **Step 5: Run the whole check**
@@ -588,7 +614,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/campaigns/automation.ts test/automation-api.test.ts wrangler.toml
+git add migrations/0009_raise_personalized_audience_cap.sql src/campaigns/automation.ts test/automation-api.test.ts wrangler.toml
 git commit -m "feat(campaigns): accept per-recipient copy from automation"
 ```
 
@@ -759,23 +785,26 @@ use futures::executor::block_on;
 
 #[test]
 fn paging_stops_on_a_short_page_and_covers_every_creator() {
-    let client = FakeStatsClient::with_pages(vec![page(100, 0), page(100, 100), page(40, 200)]);
+    let client = FakeStatsClient::with_pages(vec![page(500, 0), page(500, 500), page(200, 1000)]);
     let collected = block_on(divine_badges::digest::fetch_all_stats(&client, "2026-09-22"))
         .expect("stats");
 
-    assert_eq!(collected.len(), 240);
-    assert_eq!(client.requested_offsets(), vec![0, 100, 200]);
+    assert_eq!(collected.len(), 1200);
+    let cursors = client.requested_cursors();
+    assert_eq!(cursors.len(), 3);
+    assert_eq!(cursors[0], "");
+    assert!(cursors[1] > cursors[0], "cursor must advance");
+    assert!(cursors[2] > cursors[1], "cursor must advance");
 }
 
 #[test]
 fn a_duplicate_across_a_page_boundary_is_collapsed() {
     // Review Focus 2: the campaign_recipients primary key is
     // (campaign_revision_id, recipient_pubkey), so a duplicate is an insert
-    // failure, not a duplicate notification.
-    let mut first = page(2, 0);
-    let second = vec![first[1].clone()];
-    first.truncate(2);
-    let client = FakeStatsClient::with_pages(vec![first, second]);
+    // failure, not a duplicate notification. The endpoint's cursor is
+    // exclusive, but fetch_all_stats still dedupes defensively.
+    let first = page(2, 0);
+    let client = FakeStatsClient::with_pages(vec![first.clone(), vec![first[1].clone()]]);
 
     let collected = block_on(divine_badges::digest::fetch_all_stats(&client, "2026-09-22"))
         .expect("stats");
@@ -796,21 +825,21 @@ fn a_failed_page_aborts_the_whole_digest() {
 
 #[test]
 fn paging_past_the_audience_cap_fails_loudly() {
-    // Review Focus 5. Ten full pages is 1000 creators; an eleventh means the
-    // day exceeded the cap, and an arbitrary 1000 of them is the wrong answer.
-    let client = FakeStatsClient::with_pages(vec![page(100, 0); 11]);
+    // Review Focus 5. Ten full pages is 5000 creators; an eleventh means the
+    // day exceeded the cap, and an arbitrary 5000 of them is the wrong answer.
+    let client = FakeStatsClient::with_pages(vec![page(500, 0); 11]);
     assert!(block_on(divine_badges::digest::fetch_all_stats(&client, "2026-09-22")).is_err());
 }
 ```
 
-Write `FakeStatsClient` and `page(count, offset)` in the test file, against a `CreatorPeriodStatsClient` port added to `src/ports.rs`. `page` produces distinct pubkeys derived from the offset.
+Write `FakeStatsClient` and `page(count, start)` in the test file, against a `CreatorPeriodStatsClient` port added to `src/ports.rs`. `page` produces distinct pubkeys derived from `start`; the fake records each request's `after` cursor so `requested_cursors()` can assert the walk strictly advances.
 
 - [ ] **Step 7: Run them to verify they fail, then implement**
 
 Run: `cargo test --test digest_tests paging`
 Expected: FAIL — the port and function do not exist.
 
-Implement `fetch_all_stats`: page with `limit=100` from `offset=0`, stop on a page shorter than the limit, propagate any error rather than returning a partial list, deduplicate by pubkey across pages, and return an error once the tenth full page is exhausted and another would be needed. Ten pages is also well inside the Workers subrequest budget. Add the wasm client to `src/divine_api.rs` beside the existing candidates client, following its URL-building and parsing style.
+Implement `fetch_all_stats`: page with `limit=500` starting from an empty cursor, sending the last entry's pubkey as the next `after`; stop on a page shorter than the limit, propagate any error rather than returning a partial list, deduplicate by pubkey defensively, and return an error once the tenth full page is exhausted and another would be needed (10 × 500 = 5000, the cap). A short page mid-walk is the true end, because the recipient gate and the zero-activity `HAVING` are applied inside the endpoint's SQL before `LIMIT`. A full ~3,000-creator day is about seven fetches, well inside the Worker subrequest budget. Add the wasm client to `src/divine_api.rs` beside the existing candidates client, following its URL-building and parsing style.
 
 - [ ] **Step 8: Wire the job into the tick**
 
@@ -851,7 +880,7 @@ git commit -m "feat(digest): send creators a daily stats notification"
 - [ ] `divine-badges`: `npm run check`, `npm run check:wasm`, migration applied locally.
 - [ ] **Rollout order:** funnelcake first (inert until called), then engagement, then badges with `DIGEST_ENABLED` off. Turn it on for one day, then read the audit trail and the delivery results before leaving it on.
 - [ ] Validate end-to-end on `internal_test_pubkeys` while `ALLOW_PRODUCTION_DELIVERY` is still `"false"`.
-- [ ] Watch for the 1000-creator cap firing. If real days exceed it, that is a product decision about who the digest is for — not a number to quietly raise.
+- [ ] Watch the 5000-creator cap. Measured 2026-09-23: 2,000-3,200 active creators/day, so it has headroom. If real days exceed it, that is a product decision about who the digest is for — not a number to quietly raise.
 
 ## Deliberately not in this plan
 
