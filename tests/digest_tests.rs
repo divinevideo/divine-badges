@@ -23,6 +23,10 @@ fn stats(
 #[test]
 fn body_names_every_nonzero_metric_with_its_own_number() {
     let body = digest_body(&stats('a', 120, 12, 3, 2)).expect("body");
+    assert_eq!(
+        body,
+        "Your videos got 120 views, 12 likes, 3 comments and 2 reposts today."
+    );
     assert!(body.contains("120 views"), "{body}");
     assert!(body.contains("12 likes"), "{body}");
     assert!(body.contains("3 comments"), "{body}");
@@ -46,10 +50,18 @@ fn a_creator_with_nothing_gets_no_digest() {
 #[test]
 fn singular_wording_is_correct() {
     let body = digest_body(&stats('a', 1, 1, 1, 1)).expect("body");
-    assert!(body.contains("1 view "), "{body}");
-    assert!(body.contains("1 like"), "{body}");
+    assert_eq!(
+        body,
+        "Your videos got 1 view, 1 like, 1 comment and 1 repost today."
+    );
     assert!(!body.contains("1 likes"), "{body}");
     assert!(!body.contains("1 views"), "{body}");
+}
+
+#[test]
+fn a_single_metric_needs_no_list_punctuation() {
+    let body = digest_body(&stats('a', 0, 0, 0, 1)).expect("body");
+    assert_eq!(body, "Your videos got 1 repost today.");
 }
 
 #[test]

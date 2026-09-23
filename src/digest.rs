@@ -43,6 +43,17 @@ fn metric(count: i64, singular: &str, plural: &str) -> String {
     format!("{count} {noun}")
 }
 
+/// "120 views, 12 likes, 3 comments and 2 reposts" — commas between, "and"
+/// before the last. Four metrics joined by "and" throughout reads as a list
+/// someone forgot to punctuate.
+fn join_metrics(parts: &[String]) -> String {
+    match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, leading)) => format!("{} and {last}", leading.join(", ")),
+        None => String::new(),
+    }
+}
+
 /// Render a creator's day, or `None` when every metric is zero.
 ///
 /// Only nonzero metrics appear, so a quiet day is not framed as a failure and
@@ -64,7 +75,7 @@ pub fn digest_body(stats: &CreatorPeriodStats) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    Some(format!("Your videos got {} today.", parts.join(" and ")))
+    Some(format!("Your videos got {} today.", join_metrics(&parts)))
 }
 
 /// Build the day's digest campaign, or `None` when no creator has activity.
