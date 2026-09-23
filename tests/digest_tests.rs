@@ -93,6 +93,27 @@ fn digest_campaign_carries_one_body_per_creator_and_no_holdout() {
 }
 
 #[test]
+fn the_digest_payload_gives_each_recipient_their_own_body_and_no_title() {
+    // divine-engagement types the override as an optional string, so an
+    // absent title has to be absent, not null.
+    let campaign =
+        digest_campaign("2026-09-22", vec![stats('a', 120, 12, 3, 2)]).expect("campaign");
+    let payload = serde_json::to_value(&campaign).expect("payload");
+
+    let recipients = payload
+        .get("personalizedRecipients")
+        .and_then(serde_json::Value::as_array)
+        .expect("personalizedRecipients");
+    assert_eq!(recipients.len(), 1);
+    assert_eq!(recipients[0]["pubkey"], "a".repeat(64));
+    assert_eq!(
+        recipients[0]["body"],
+        "Your videos got 120 views, 12 likes, 3 comments and 2 reposts today."
+    );
+    assert!(recipients[0].get("title").is_none(), "{payload}");
+}
+
+#[test]
 fn creators_with_nothing_are_dropped_from_the_campaign() {
     let campaign = digest_campaign(
         "2026-09-22",

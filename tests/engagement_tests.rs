@@ -26,6 +26,21 @@ fn broadcast_campaign_names_the_winner_and_targets_the_opt_in_audience() {
 }
 
 #[test]
+fn diviner_payloads_carry_no_personalized_recipients_field() {
+    // The digest added personalizedRecipients to the shared campaign body.
+    // An empty list must stay absent from the wire, not arrive as [].
+    let run = completed_run(Some("KingBach"), Some(&"a".repeat(64)));
+
+    for campaign in [
+        winner_campaign(&run).expect("winner campaign"),
+        broadcast_campaign(&run).expect("broadcast campaign"),
+    ] {
+        let payload = serde_json::to_value(&campaign).expect("payload");
+        assert!(payload.get("personalizedRecipients").is_none(), "{payload}");
+    }
+}
+
+#[test]
 fn a_run_without_a_winner_produces_no_campaigns() {
     // Review Focus 5.
     let run = completed_run(Some("KingBach"), None);
