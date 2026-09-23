@@ -525,6 +525,11 @@ fn log_engagement_error(_err: &AppError) {}
 /// on one transient 500 and never retry. A failed fetch leaves the day
 /// unclaimed. A failed campaign creation is logged and swallowed, so a digest
 /// failure never fails the award tick.
+///
+/// The tick is hourly and every tick of a day sees the same closed day, so the
+/// already-sent read comes first. Without it the other 23 ticks would each
+/// walk the whole stats endpoint before the claim told them there was nothing
+/// to do.
 async fn run_creator_digest<R, S, M, C>(
     clock: &C,
     config: &AppConfig,
@@ -540,6 +545,15 @@ async fn run_creator_digest<R, S, M, C>(
 {
     if !config.digest_enabled || config.engagement_api_base_url.is_none() {
         return;
+    }
+
+    // A read failure is not a reason to skip the day: the claim below still
+    // makes the send once-only, so falling through costs a walk, not a
+    // duplicate notification.
+    match repository.digest_already_notified(period_key).await {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(err) => log_digest_error(&err),
     }
 
     let all_stats = match fetch_all_stats(stats, period_key).await {

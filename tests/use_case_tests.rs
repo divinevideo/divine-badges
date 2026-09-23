@@ -544,6 +544,10 @@ impl AwardRepository for FakeRepo {
             .borrow_mut()
             .insert(period_key.to_string()))
     }
+
+    async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
+        Ok(self.digest_notified.borrow().contains(period_key))
+    }
 }
 
 enum CandidateFailure {
@@ -705,6 +709,7 @@ impl CampaignClient for FakeCampaignClient {
 #[derive(Default)]
 struct FakeStatsClient {
     fail: bool,
+    entries: Vec<CreatorPeriodStats>,
     calls: RefCell<Vec<String>>,
 }
 
@@ -720,7 +725,19 @@ impl CreatorPeriodStatsClient for FakeStatsClient {
         if self.fail {
             return Err(AppError::Api("stats unavailable".into()));
         }
-        Ok(Vec::new())
+        Ok(self.entries.clone())
+    }
+}
+
+fn creator_stats(pubkey_seed: char, views: i64) -> CreatorPeriodStats {
+    CreatorPeriodStats {
+        pubkey: std::iter::repeat(pubkey_seed).take(64).collect(),
+        views,
+        unique_viewers: views,
+        loops: views as f64,
+        reactions: 1,
+        comments: 0,
+        reposts: 0,
     }
 }
 
@@ -2383,5 +2400,67 @@ fn a_failed_stats_fetch_leaves_the_day_unclaimed() {
         .expect("tick");
 
         assert!(!repo.digest_claimed("2026-04-14"));
+    });
+}
+
+#[test]
+fn the_digest_is_sent_once_and_later_ticks_do_not_walk_the_stats_endpoint_again() {
+    // The tick is hourly and every tick of a day sees the same closed day, so
+    // a claim checked only after the walk costs 23 full walks per digest.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12), creator_stats('d', 4)],
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("first tick");
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("second tick");
+
+        let created = campaigns.created.borrow();
+        let digests: Vec<&AutomatedCampaign> = created
+            .iter()
+            .filter(|campaign| campaign.automation_key.starts_with("creator-digest-"))
+            .collect();
+        assert_eq!(digests.len(), 1);
+        assert_eq!(digests[0].automation_key, "creator-digest-2026-04-14");
+        assert_eq!(digests[0].personalized_recipients.len(), 2);
+        assert_eq!(
+            stats.calls.borrow().len(),
+            1,
+            "a sent digest must not walk the stats endpoint again"
+        );
     });
 }

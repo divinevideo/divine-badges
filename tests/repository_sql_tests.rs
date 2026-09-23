@@ -277,6 +277,15 @@ fn claim_digest_notification_sql_is_idempotent_per_period() {
     assert!(sql.contains("notified_at IS NULL"));
 }
 
+#[test]
+fn digest_already_notified_sql_reads_only_a_claimed_day() {
+    let sql = divine_badges::repository::DIGEST_ALREADY_NOTIFIED_SQL;
+    assert!(sql.contains("SELECT"));
+    assert!(sql.contains("digest_runs"));
+    assert!(sql.contains("period_key = ?1"));
+    assert!(sql.contains("notified_at IS NOT NULL"));
+}
+
 fn complete_award_run() -> AwardRun {
     let mut run = AwardRun::pending("diviner-of-the-day", "2026-08-21", "day");
     run.winner_pubkey = Some("winner-pubkey".into());

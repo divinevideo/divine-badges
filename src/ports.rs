@@ -100,6 +100,12 @@ pub trait AwardRepository {
         period_key: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AppError>;
+    /// Whether the UTC day's digest has already been sent.
+    ///
+    /// The claim above is what makes the send once-only. This read exists so
+    /// the later ticks of the same day can skip the stats walk instead of
+    /// paying for it and then discarding the result.
+    async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError>;
 }
 
 #[async_trait(?Send)]

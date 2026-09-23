@@ -97,6 +97,14 @@ pub const CLAIM_DIGEST_NOTIFICATION_SQL: &str =
      ON CONFLICT(period_key) DO UPDATE SET notified_at = excluded.notified_at \
      WHERE digest_runs.notified_at IS NULL";
 
+/// Whether the UTC day's digest has already been sent.
+///
+/// Every hourly tick sees the same closed day, so the claim alone would let
+/// all 23 later ticks walk the whole stats endpoint before discovering there
+/// is nothing to do. This read is what makes them cheap.
+pub const DIGEST_ALREADY_NOTIFIED_SQL: &str = "SELECT period_key FROM digest_runs \
+     WHERE period_key = ?1 AND notified_at IS NOT NULL";
+
 pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
     vec![
         text(&run.award_slug),
@@ -699,6 +707,20 @@ mod d1_repository {
                 .and_then(|meta| meta.changes)
                 .unwrap_or(0);
             Ok(result.success() && changes > 0)
+        }
+
+        async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
+            let statement = self
+                .db
+                .prepare(crate::repository::DIGEST_ALREADY_NOTIFIED_SQL)
+                .bind(&[JsValue::from_str(period_key)])
+                .map_err(repository_error)?;
+
+            let row: Option<String> = statement
+                .first(Some("period_key"))
+                .await
+                .map_err(repository_error)?;
+            Ok(row.is_some())
         }
     }
 
