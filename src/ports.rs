@@ -86,6 +86,12 @@ pub trait AwardRepository {
         award_slug: &str,
         period_key: &str,
     ) -> Result<AwardRun, AppError>;
+    async fn claim_push_notification(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, AppError>;
 }
 
 #[async_trait(?Send)]

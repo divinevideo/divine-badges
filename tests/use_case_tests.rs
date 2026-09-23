@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use async_trait::async_trait;
@@ -38,6 +39,7 @@ struct FakeRepo {
     complete_before_mark_award_failed: RefCell<bool>,
     prepare_before_mark_preparation_failed: RefCell<bool>,
     discord_claim_times: RefCell<Vec<(DateTime<Utc>, DateTime<Utc>)>>,
+    push_notified: RefCell<HashSet<(String, String)>>,
 }
 
 impl Default for FakeRepo {
@@ -53,6 +55,7 @@ impl Default for FakeRepo {
             complete_before_mark_award_failed: RefCell::new(false),
             prepare_before_mark_preparation_failed: RefCell::new(false),
             discord_claim_times: RefCell::new(Vec::new()),
+            push_notified: RefCell::new(HashSet::new()),
         }
     }
 }
@@ -499,6 +502,27 @@ impl AwardRepository for FakeRepo {
             return Ok(current);
         }
         self.update(slug, key, AwardRunStatus::SkippedInactive, None)
+    }
+
+    async fn claim_push_notification(
+        &self,
+        slug: &str,
+        key: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        let current = self
+            .runs
+            .borrow()
+            .get(&(slug.into(), key.into()))
+            .cloned()
+            .ok_or_else(|| AppError::Repository("missing run".into()))?;
+        if current.status != AwardRunStatus::Completed {
+            return Ok(false);
+        }
+        Ok(self
+            .push_notified
+            .borrow_mut()
+            .insert((slug.to_string(), key.to_string())))
     }
 }
 

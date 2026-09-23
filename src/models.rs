@@ -31,6 +31,7 @@ pub struct AwardRun {
     pub discord_claim_token: Option<String>,
     pub discord_lease_expires_at: Option<DateTime<Utc>>,
     pub discord_message_sent: bool,
+    pub push_notified_at: Option<DateTime<Utc>>,
     pub status: AwardRunStatus,
     pub error_message: Option<String>,
 }
@@ -69,6 +70,7 @@ impl AwardRun {
             discord_claim_token: None,
             discord_lease_expires_at: None,
             discord_message_sent: false,
+            push_notified_at: None,
             status: AwardRunStatus::Pending,
             error_message: None,
         }

@@ -77,6 +77,15 @@ pub fn mark_completed_sql() -> &'static str {
     "UPDATE award_runs SET status = 'completed', discord_message_sent = 1, discord_claim_token = NULL, discord_lease_expires_at = NULL, error_message = NULL, updated_at = ?2 WHERE award_slug = ?3 AND period_key = ?4 AND status = 'discord_sending' AND discord_claim_token = ?1"
 }
 
+/// Claim the one-shot push notification for a completed award run.
+///
+/// The `push_notified_at IS NULL` predicate makes the update idempotent: a
+/// second tick over the same run changes no rows and claims nothing.
+pub const CLAIM_PUSH_NOTIFICATION_SQL: &str = "UPDATE award_runs \
+     SET push_notified_at = ?1 \
+     WHERE award_slug = ?2 AND period_key = ?3 \
+       AND status = 'completed' AND push_notified_at IS NULL";
+
 pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
     vec![
         text(&run.award_slug),
@@ -630,6 +639,32 @@ mod d1_repository {
             )
             .await
         }
+
+        async fn claim_push_notification(
+            &self,
+            award_slug: &str,
+            period_key: &str,
+            now: chrono::DateTime<chrono::Utc>,
+        ) -> Result<bool, AppError> {
+            let result = self
+                .db
+                .prepare(crate::repository::CLAIM_PUSH_NOTIFICATION_SQL)
+                .bind(&[
+                    JsValue::from_str(&now.to_rfc3339()),
+                    JsValue::from_str(award_slug),
+                    JsValue::from_str(period_key),
+                ])
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+            let changes = result
+                .meta()
+                .map_err(repository_error)?
+                .and_then(|meta| meta.changes)
+                .unwrap_or(0);
+            Ok(result.success() && changes > 0)
+        }
     }
 
     impl From<StoredBadgeDefinition> for BadgeDefinitionRecord {
@@ -677,6 +712,7 @@ mod d1_repository {
                 discord_claim_token: value.discord_claim_token,
                 discord_lease_expires_at: value.discord_lease_expires_at,
                 discord_message_sent: value.discord_message_sent != 0,
+                push_notified_at: None,
                 status: value.status.parse::<AwardRunStatus>().map_err(|()| {
                     AppError::Repository(format!("unknown award run status {}", value.status))
                 })?,
