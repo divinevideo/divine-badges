@@ -75,16 +75,27 @@ Non-secret settings are committed as `[vars]` in `wrangler.toml`:
 | `DIVINE_RELAY_URL` | Nostr relay the issuer publishes badge events to |
 | `DIVINE_BADGE_IMAGE_URL` | Default badge artwork used when seeding definitions |
 | `DIVINE_CREATOR_BASE_URL` | Base URL for winner creator links on the landing page |
+| `ENGAGEMENT_API_BASE_URL` | Base URL for the divine-engagement campaign API; empty disables campaign creation |
 
-Secrets must be set with `wrangler secret put` before deploying:
+Secrets must be set with `wrangler secret put` before deploying. They are read from the worker's secret bindings, never from `wrangler.toml`:
+
+| Secret | Purpose |
+| --- | --- |
+| `NOSTR_ISSUER_NSEC` | Issuer signing key for badge events |
+| `DISCORD_WEBHOOK_URL` | Webhook for winner announcements |
+| `ADMIN_TOKEN` | Bearer token for `POST /admin/publish-profile` |
+| `ENGAGEMENT_ACCESS_CLIENT_ID` | Cloudflare Access service-token client id for the campaign API |
+| `ENGAGEMENT_ACCESS_CLIENT_SECRET` | Cloudflare Access service-token client secret for the campaign API |
 
 ```bash
-wrangler secret put NOSTR_ISSUER_NSEC     # issuer signing key for badge events
-wrangler secret put DISCORD_WEBHOOK_URL   # webhook for winner announcements
-wrangler secret put ADMIN_TOKEN           # bearer token for POST /admin/publish-profile
+wrangler secret put NOSTR_ISSUER_NSEC            # issuer signing key for badge events
+wrangler secret put DISCORD_WEBHOOK_URL          # webhook for winner announcements
+wrangler secret put ADMIN_TOKEN                  # bearer token for POST /admin/publish-profile
+wrangler secret put ENGAGEMENT_ACCESS_CLIENT_ID     # Access service-token client id
+wrangler secret put ENGAGEMENT_ACCESS_CLIENT_SECRET # Access service-token client secret
 ```
 
-The Worker reads each binding as either a var or a secret, so the four vars above can be moved to secrets if you prefer to keep them out of `wrangler.toml`. If you are upgrading an existing database, make sure migration `0003_winner_nip05.sql` is applied so winner links can prefer Divine `nip05` handles.
+The Worker reads each binding as either a var or a secret, so the five vars above can be moved to secrets if you prefer to keep them out of `wrangler.toml`. If you are upgrading an existing database, make sure migration `0003_winner_nip05.sql` is applied so winner links can prefer Divine `nip05` handles.
 
 ## Deployment
 

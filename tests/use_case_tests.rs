@@ -10,13 +10,14 @@ use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
 use divine_badges::divine_api::ranked_candidates_for_period;
 use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
+use divine_badges::engagement::AutomatedCampaign;
 use divine_badges::error::AppError;
 use divine_badges::models::{
     AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate,
 };
 use divine_badges::nostr::{DefinitionPublishResult, SignedNostrEvent};
 use divine_badges::ports::{
-    AwardRepository, BadgePublisher, DiscordClient, DivinerCandidatesClient,
+    AwardRepository, BadgePublisher, CampaignClient, DiscordClient, DivinerCandidatesClient,
 };
 use divine_badges::state::AwardRunStatus;
 use divine_badges::use_cases::{run_award_tick_with_clock, TickOutcome};
@@ -656,6 +657,32 @@ impl DiscordClient for FakeDiscord {
     }
 }
 
+#[derive(Default)]
+struct FakeCampaignClient {
+    created: RefCell<Vec<AutomatedCampaign>>,
+    failure: bool,
+}
+
+impl FakeCampaignClient {
+    fn failing() -> Self {
+        Self {
+            created: RefCell::new(Vec::new()),
+            failure: true,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl CampaignClient for FakeCampaignClient {
+    async fn create_campaign(&self, campaign: &AutomatedCampaign) -> Result<(), AppError> {
+        if self.failure {
+            return Err(AppError::Api("engagement unavailable".into()));
+        }
+        self.created.borrow_mut().push(campaign.clone());
+        Ok(())
+    }
+}
+
 struct InFlightReclaimDiscord<'a> {
     repo: &'a FakeRepo,
     claim_time: DateTime<Utc>,
@@ -695,6 +722,18 @@ fn config() -> AppConfig {
         discord_webhook_url: "https://discord.example/webhook".into(),
         divine_badge_image_url: "https://cdn.divine.video/logo.png".into(),
         divine_creator_base_url: "https://divine.video".into(),
+        engagement_api_base_url: None,
+        engagement_access_client_id: None,
+        engagement_access_client_secret: None,
+    }
+}
+
+fn config_with_engagement() -> AppConfig {
+    AppConfig {
+        engagement_api_base_url: Some("https://engagement.example".into()),
+        engagement_access_client_id: Some("access-id".into()),
+        engagement_access_client_secret: Some("access-secret".into()),
+        ..config()
     }
 }
 
@@ -796,7 +835,18 @@ async fn execute(
     publisher: &FakePublisher,
     discord: &FakeDiscord,
 ) -> Result<TickOutcome, AppError> {
-    execute_with_claim_time(now, now, repo, candidates, publisher, discord).await
+    let campaigns = FakeCampaignClient::default();
+    execute_with_claim_time(
+        now,
+        now,
+        &config(),
+        &campaigns,
+        repo,
+        candidates,
+        publisher,
+        discord,
+    )
+    .await
 }
 
 #[derive(Clone, Copy)]
@@ -811,6 +861,8 @@ impl Clock for FakeClock {
 async fn execute_with_claim_time(
     tick_started_at: DateTime<Utc>,
     claim_time: DateTime<Utc>,
+    config: &AppConfig,
+    campaigns: &FakeCampaignClient,
     repo: &FakeRepo,
     candidates: &FakeCandidates,
     publisher: &FakePublisher,
@@ -819,11 +871,12 @@ async fn execute_with_claim_time(
     run_award_tick_with_clock(
         tick_started_at,
         &FakeClock(claim_time),
-        &config(),
+        config,
         repo,
         candidates,
         publisher,
         discord,
+        campaigns,
     )
     .await
 }
@@ -1652,10 +1705,18 @@ fn delayed_pipeline_claims_discord_from_fresh_claim_time() {
         let discord = FakeDiscord::default();
         let claim_time = tick() + Duration::minutes(12);
 
-        let outcome =
-            execute_with_claim_time(tick(), claim_time, &repo, &candidates, &publisher, &discord)
-                .await
-                .unwrap();
+        let outcome = execute_with_claim_time(
+            tick(),
+            claim_time,
+            &config(),
+            &FakeCampaignClient::default(),
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(outcome.runs[0].status, AwardRunStatus::Completed);
         assert_eq!(
@@ -1688,6 +1749,7 @@ fn webhook_timeout_finishes_before_the_discord_lease_can_be_reclaimed() {
             &candidates,
             &publisher,
             &discord,
+            &FakeCampaignClient::default(),
         )
         .await
         .unwrap();
@@ -2094,5 +2156,119 @@ fn rejects_every_counter_above_js_safe_boundary_without_publication() {
                 .contains(field));
             assert_eq!(*publisher.count.borrow(), 0, "{field}");
         }
+    });
+}
+
+#[test]
+fn completed_award_creates_both_campaigns_once() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let config = config_with_engagement();
+
+        execute_with_claim_time(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("first tick");
+        execute_with_claim_time(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("second tick");
+
+        // Review Focus 3 downstream: the claim, not the remote API, is what makes
+        // this once-only from our side.
+        let created = campaigns.created.borrow();
+        assert_eq!(created.len(), 2);
+        assert!(created
+            .iter()
+            .any(|campaign| campaign.automation_key.ends_with("-winner")));
+        assert!(created
+            .iter()
+            .any(|campaign| campaign.automation_key.ends_with("-broadcast")));
+    });
+}
+
+#[test]
+fn an_engagement_outage_does_not_fail_the_award_tick() {
+    // Review Focus 4.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::failing();
+        let config = config_with_engagement();
+
+        let outcome = execute_with_claim_time(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await;
+
+        assert!(
+            outcome.is_ok(),
+            "the award must complete even if notification fails"
+        );
+        assert_eq!(outcome.unwrap().runs[0].status, AwardRunStatus::Completed);
+    });
+}
+
+#[test]
+fn no_campaigns_without_a_configured_engagement_url() {
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+
+        execute_with_claim_time(
+            tick(),
+            tick(),
+            &config(),
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("tick");
+
+        assert!(campaigns.created.borrow().is_empty());
     });
 }

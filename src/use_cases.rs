@@ -6,11 +6,14 @@ use crate::eligibility::{
     is_candidate_active_for_period, is_diviner_award_excluded_creator,
     DIVINER_AWARD_EXCLUDED_PUBKEYS,
 };
+use crate::engagement::{broadcast_campaign, winner_campaign};
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
 use crate::nostr::{build_badge_award_tags, SignedNostrEvent};
 use crate::period::closed_periods_for_tick;
-use crate::ports::{AwardRepository, BadgePublisher, DiscordClient, DivinerCandidatesClient};
+use crate::ports::{
+    AwardRepository, BadgePublisher, CampaignClient, DiscordClient, DivinerCandidatesClient,
+};
 use crate::state::AwardRunStatus;
 use chrono::{DateTime, Utc};
 
@@ -23,19 +26,21 @@ pub struct TickOutcome {
     pub runs: Vec<AwardRun>,
 }
 
-pub async fn run_award_tick<R, L, P, D>(
+pub async fn run_award_tick<R, L, P, D, M>(
     now: DateTime<Utc>,
     config: &AppConfig,
     repository: &R,
     candidates: &L,
     publisher: &P,
     discord: &D,
+    campaigns: &M,
 ) -> Result<TickOutcome, AppError>
 where
     R: AwardRepository,
     L: DivinerCandidatesClient,
     P: BadgePublisher,
     D: DiscordClient,
+    M: CampaignClient,
 {
     run_award_tick_with_clock(
         now,
@@ -45,11 +50,12 @@ where
         candidates,
         publisher,
         discord,
+        campaigns,
     )
     .await
 }
 
-pub async fn run_award_tick_with_clock<R, L, P, D, C>(
+pub async fn run_award_tick_with_clock<R, L, P, D, M, C>(
     now: DateTime<Utc>,
     clock: &C,
     config: &AppConfig,
@@ -57,12 +63,14 @@ pub async fn run_award_tick_with_clock<R, L, P, D, C>(
     candidates: &L,
     publisher: &P,
     discord: &D,
+    campaigns: &M,
 ) -> Result<TickOutcome, AppError>
 where
     R: AwardRepository,
     L: DivinerCandidatesClient,
     P: BadgePublisher,
     D: DiscordClient,
+    M: CampaignClient,
     C: Clock,
 {
     let mut runs = Vec::new();
@@ -86,7 +94,12 @@ where
                 | AwardRunStatus::DiscordSending
                 | AwardRunStatus::AwardedDiscordPending
         ) {
-            runs.push(deliver_discord(clock, &award, config, repository, discord, run).await?);
+            let delivered =
+                deliver_discord(clock, &award, config, repository, discord, run).await?;
+            if delivered.status == AwardRunStatus::Completed {
+                notify_engagement(clock, config, repository, campaigns, &delivered).await;
+            }
+            runs.push(delivered);
             continue;
         }
 
@@ -244,7 +257,11 @@ where
         run = repository
             .mark_awarded(award.slug, &period.key, &published_event_id)
             .await?;
-        runs.push(deliver_discord(clock, &award, config, repository, discord, run).await?);
+        let delivered = deliver_discord(clock, &award, config, repository, discord, run).await?;
+        if delivered.status == AwardRunStatus::Completed {
+            notify_engagement(clock, config, repository, campaigns, &delivered).await;
+        }
+        runs.push(delivered);
     }
 
     Ok(TickOutcome { runs })
@@ -439,6 +456,55 @@ where
         }
     }
 }
+
+/// Create the award's campaigns once, after the run completes.
+///
+/// Failures are logged and swallowed. A missed notification is invisible and
+/// recoverable tomorrow; failing the tick would risk re-running the award.
+/// The claim is taken first: a campaign that was created but whose response
+/// was lost must not be created twice, and divine-engagement is idempotent on
+/// `automationKey` as the second line of defence.
+async fn notify_engagement<R, N, C>(
+    clock: &C,
+    config: &AppConfig,
+    repository: &R,
+    campaigns: &N,
+    run: &AwardRun,
+) where
+    R: AwardRepository,
+    N: CampaignClient,
+    C: Clock,
+{
+    if config.engagement_api_base_url.is_none() {
+        return;
+    }
+
+    match repository
+        .claim_push_notification(&run.award_slug, &run.period_key, clock.now())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(_) => return,
+    }
+
+    for campaign in [winner_campaign(run), broadcast_campaign(run)]
+        .into_iter()
+        .flatten()
+    {
+        if let Err(err) = campaigns.create_campaign(&campaign).await {
+            log_engagement_error(&err);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn log_engagement_error(err: &AppError) {
+    worker::console_error!("engagement campaign creation failed: {}", err);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn log_engagement_error(_err: &AppError) {}
 
 fn new_discord_claim_token() -> Result<String, AppError> {
     let mut bytes = [0_u8; 16];
