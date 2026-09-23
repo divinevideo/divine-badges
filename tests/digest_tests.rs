@@ -186,12 +186,16 @@ fn a_duplicate_across_a_page_boundary_is_collapsed() {
     // (campaign_revision_id, recipient_pubkey), so a duplicate is an insert
     // failure, not a duplicate notification. The endpoint's cursor is
     // exclusive, but fetch_all_stats still dedupes defensively.
-    let first = page(2, 0);
-    let client = FakeStatsClient::with_pages(vec![first.clone(), vec![first[1].clone()]]);
+    // The first page must be full, or the walk stops before it ever asks for
+    // the second one and the dedupe is never reached.
+    let first = page(500, 0);
+    let client = FakeStatsClient::with_pages(vec![first.clone(), vec![first[499].clone()]]);
 
     let collected =
         futures::executor::block_on(fetch_all_stats(&client, "2026-09-22")).expect("stats");
 
+    assert_eq!(client.requested_cursors().len(), 2);
+    assert_eq!(collected.len(), 500);
     let mut pubkeys: Vec<&str> = collected.iter().map(|s| s.pubkey.as_str()).collect();
     pubkeys.sort_unstable();
     let before = pubkeys.len();
