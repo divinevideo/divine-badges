@@ -16,6 +16,16 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// The campaign API's base URL and Access credentials, only when all
+    /// three are configured. Anything less leaves campaign creation off.
+    pub fn engagement_api(&self) -> Option<(&str, &str, &str)> {
+        Some((
+            self.engagement_api_base_url.as_deref()?,
+            self.engagement_access_client_id.as_deref()?,
+            self.engagement_access_client_secret.as_deref()?,
+        ))
+    }
+
     pub fn creator_link(&self, nip05: Option<&str>, pubkey: &str) -> String {
         creator_link_for_base(&self.divine_creator_base_url, nip05, pubkey)
     }

@@ -85,6 +85,7 @@ where
             .upsert_award_run(AwardRun::pending(award.slug, &period.key, period.kind))
             .await?;
         if run.status == AwardRunStatus::Completed {
+            notify_engagement(clock, config, repository, campaigns, &run).await;
             runs.push(run);
             continue;
         }
@@ -459,11 +460,12 @@ where
 
 /// Create the award's campaigns once, after the run completes.
 ///
-/// Failures are logged and swallowed. A missed notification is invisible and
-/// recoverable tomorrow; failing the tick would risk re-running the award.
-/// The claim is taken first: a campaign that was created but whose response
-/// was lost must not be created twice, and divine-engagement is idempotent on
-/// `automationKey` as the second line of defence.
+/// Failures are logged and swallowed: failing the tick would risk re-running
+/// the award. The claim is taken first so overlapping ticks do not both send,
+/// and it is released when any campaign fails, so the notification is not
+/// recorded as sent and a later tick retries it while the award's period is
+/// still being ticked. divine-engagement is idempotent on `automationKey`, so a
+/// retry after a lost response returns the campaign it already created.
 async fn notify_engagement<R, N, C>(
     clock: &C,
     config: &AppConfig,
@@ -475,24 +477,44 @@ async fn notify_engagement<R, N, C>(
     N: CampaignClient,
     C: Clock,
 {
-    if config.engagement_api_base_url.is_none() {
+    if config.engagement_api().is_none() {
         return;
     }
 
+    let pending: Vec<_> = [winner_campaign(run), broadcast_campaign(run)]
+        .into_iter()
+        .flatten()
+        .collect();
+    if pending.is_empty() {
+        return;
+    }
+
+    let claimed_at = clock.now();
     match repository
-        .claim_push_notification(&run.award_slug, &run.period_key, clock.now())
+        .claim_push_notification(&run.award_slug, &run.period_key, claimed_at)
         .await
     {
         Ok(true) => {}
         Ok(false) => return,
-        Err(_) => return,
+        Err(err) => {
+            log_engagement_error(&err);
+            return;
+        }
     }
 
-    for campaign in [winner_campaign(run), broadcast_campaign(run)]
-        .into_iter()
-        .flatten()
-    {
-        if let Err(err) = campaigns.create_campaign(&campaign).await {
+    let mut failed = false;
+    for campaign in &pending {
+        if let Err(err) = campaigns.create_campaign(campaign).await {
+            log_engagement_error(&err);
+            failed = true;
+        }
+    }
+
+    if failed {
+        if let Err(err) = repository
+            .release_push_notification(&run.award_slug, &run.period_key, claimed_at)
+            .await
+        {
             log_engagement_error(&err);
         }
     }
@@ -500,7 +522,7 @@ async fn notify_engagement<R, N, C>(
 
 #[cfg(target_arch = "wasm32")]
 fn log_engagement_error(err: &AppError) {
-    worker::console_error!("engagement campaign creation failed: {}", err);
+    worker::console_error!("engagement campaign notification failed: {}", err);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

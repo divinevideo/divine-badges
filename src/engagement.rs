@@ -4,6 +4,7 @@
 //! caps, and device validity are divine-push-service's decisions, and the
 //! delivery gate and global pause remain divine-engagement's.
 
+use chrono::{Duration, NaiveDate};
 use serde::Serialize;
 
 use crate::models::AwardRun;
@@ -38,15 +39,28 @@ fn winner_label(run: &AwardRun) -> &str {
         .unwrap_or("Today's Diviner")
 }
 
-/// A campaign expires at the end of the day it announces: a Diviner
+/// A campaign expires at the end of the UTC day it announces: a Diviner
 /// notification arriving two days late is worse than one that never arrives.
-fn expires_at(run: &AwardRun) -> String {
-    format!("{}T23:59:59Z", run.period_key)
+///
+/// The award for day D is only decided once D has closed, so the campaign
+/// is created and announced on D+1 and expires when D+1 ends. Expiring at the
+/// end of D itself would make every campaign expired on arrival.
+///
+/// Only the daily award has campaigns: the copy and keys speak of "today",
+/// and a week or month key is not a date.
+fn expires_at(run: &AwardRun) -> Option<String> {
+    if run.period_type != "day" {
+        return None;
+    }
+    let day = NaiveDate::parse_from_str(&run.period_key, "%F").ok()?;
+    let announce_day_end = day.checked_add_signed(Duration::days(2))?;
+    Some(format!("{}T00:00:00Z", announce_day_end.format("%F")))
 }
 
 /// Tell the winner they won.
 pub fn winner_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
     let winner = run.winner_pubkey.as_deref()?;
+    let expires_at = expires_at(run)?;
 
     Some(AutomatedCampaign {
         automation_key: format!("diviner-day-{}-winner", run.period_key),
@@ -60,7 +74,7 @@ pub fn winner_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
         motivation: "Tell the person who won that they won.".to_string(),
         success_metric: "Winner opens their badge".to_string(),
         guardrail_metric: "Campaign opt-out rate".to_string(),
-        expires_at: expires_at(run),
+        expires_at,
         holdout_basis_points: 0,
         recipients: vec![winner.to_string()],
     })
@@ -69,6 +83,7 @@ pub fn winner_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
 /// Send everyone else to the winner's profile.
 pub fn broadcast_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
     let winner = run.winner_pubkey.as_deref()?;
+    let expires_at = expires_at(run)?;
     let label = winner_label(run);
 
     Some(AutomatedCampaign {
@@ -85,7 +100,7 @@ pub fn broadcast_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
                 .to_string(),
         success_metric: "Diviner profile visits".to_string(),
         guardrail_metric: "Campaign opt-out rate".to_string(),
-        expires_at: expires_at(run),
+        expires_at,
         holdout_basis_points: 0,
         recipients: Vec::new(),
     })
@@ -176,7 +191,8 @@ mod wasm_client {
     }
 
     /// The concrete campaign client the Worker runs with: active when the
-    /// engagement API is configured, a no-op otherwise.
+    /// engagement API and its Access credentials are configured, a no-op
+    /// otherwise.
     #[derive(Debug, Clone)]
     pub enum EngagementCampaignClient {
         Active(Box<WasmCampaignClient>),
@@ -185,18 +201,14 @@ mod wasm_client {
 
     impl EngagementCampaignClient {
         pub fn from_config(config: &crate::config::AppConfig) -> Self {
-            match &config.engagement_api_base_url {
-                Some(base_url) => Self::Active(Box::new(WasmCampaignClient::new(
-                    base_url.clone(),
-                    config
-                        .engagement_access_client_id
-                        .clone()
-                        .unwrap_or_default(),
-                    config
-                        .engagement_access_client_secret
-                        .clone()
-                        .unwrap_or_default(),
-                ))),
+            match config.engagement_api() {
+                Some((base_url, client_id, client_secret)) => {
+                    Self::Active(Box::new(WasmCampaignClient::new(
+                        base_url.to_string(),
+                        client_id.to_string(),
+                        client_secret.to_string(),
+                    )))
+                }
                 None => Self::Disabled(NoopCampaignClient),
             }
         }

@@ -75,7 +75,7 @@ Non-secret settings are committed as `[vars]` in `wrangler.toml`:
 | `DIVINE_RELAY_URL` | Nostr relay the issuer publishes badge events to |
 | `DIVINE_BADGE_IMAGE_URL` | Default badge artwork used when seeding definitions |
 | `DIVINE_CREATOR_BASE_URL` | Base URL for winner creator links on the landing page |
-| `ENGAGEMENT_API_BASE_URL` | Base URL for the divine-engagement campaign API; empty disables campaign creation |
+| `ENGAGEMENT_API_BASE_URL` | Base URL for the divine-engagement campaign API; empty, or either Access secret below missing, disables campaign creation |
 
 Secrets must be set with `wrangler secret put` before deploying. They are read from the worker's secret bindings, never from `wrangler.toml`:
 
