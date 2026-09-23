@@ -1,7 +1,8 @@
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use k256::schnorr::VerifyingKey;
 use url::Url;
 
+use crate::digest::{CreatorPeriodStats, CreatorPeriodStatsResponse};
 use crate::error::AppError;
 use crate::models::{DivinerCandidate, DivinerCandidatesResponse};
 
@@ -162,6 +163,45 @@ pub async fn ranked_candidates_for_period(
     candidates_from_http_response(status_code, &body, start, end, candidate_window)
 }
 
+/// The exact, end-exclusive UTC bounds of one closed daily period key.
+fn creator_period_bounds(period_key: &str) -> Result<(DateTime<Utc>, DateTime<Utc>), AppError> {
+    let date = NaiveDate::parse_from_str(period_key, "%F")
+        .map_err(|err| AppError::Api(format!("invalid creator period key {period_key}: {err}")))?;
+    let start = date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| AppError::Api(format!("invalid creator period start {period_key}")))?
+        .and_utc();
+    let end = start + chrono::Duration::days(1);
+    Ok((start, end))
+}
+
+pub fn build_creator_period_stats_url(
+    base_url: &str,
+    period_key: &str,
+    limit: usize,
+    after: &str,
+) -> Result<Url, AppError> {
+    let (start, end) = creator_period_bounds(period_key)?;
+    let mut url = Url::parse(base_url).map_err(|err| AppError::Api(err.to_string()))?;
+    url.set_path("/api/awards/creator-period-stats");
+    url.query_pairs_mut()
+        .append_pair("start", &canonical_utc_timestamp(start))
+        .append_pair("end", &canonical_utc_timestamp(end))
+        .append_pair("limit", &limit.to_string());
+    if !after.is_empty() {
+        url.query_pairs_mut().append_pair("after", after);
+    }
+    Ok(url)
+}
+
+pub fn parse_creator_period_stats_response(
+    body: &str,
+) -> Result<Vec<CreatorPeriodStats>, AppError> {
+    let response: CreatorPeriodStatsResponse =
+        serde_json::from_str(body).map_err(|err| AppError::Api(err.to_string()))?;
+    Ok(response.entries)
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_clients {
     use async_trait::async_trait;
@@ -170,11 +210,12 @@ mod wasm_clients {
 
     use crate::error::AppError;
     use crate::models::DivinerCandidate;
-    use crate::ports::DivinerCandidatesClient;
+    use crate::ports::{CreatorPeriodStatsClient, DivinerCandidatesClient};
 
     use super::{
-        build_diviner_candidates_url, candidates_from_http_response,
-        ensure_successful_candidates_status,
+        build_creator_period_stats_url, build_diviner_candidates_url,
+        candidates_from_http_response, ensure_successful_candidates_status,
+        parse_creator_period_stats_response,
     };
 
     #[derive(Debug, Clone)]
@@ -211,7 +252,46 @@ mod wasm_clients {
             candidates_from_http_response(status_code, &body, start, end, candidate_window)
         }
     }
+
+    /// Reads the paged per-creator stats endpoint that feeds the daily digest.
+    #[derive(Debug, Clone)]
+    pub struct WasmCreatorPeriodStatsClient {
+        base_url: String,
+    }
+
+    impl WasmCreatorPeriodStatsClient {
+        pub fn new(base_url: String) -> Self {
+            Self { base_url }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl CreatorPeriodStatsClient for WasmCreatorPeriodStatsClient {
+        async fn stats_page(
+            &self,
+            period_key: &str,
+            limit: usize,
+            after: &str,
+        ) -> Result<Vec<crate::digest::CreatorPeriodStats>, AppError> {
+            let url = build_creator_period_stats_url(&self.base_url, period_key, limit, after)?;
+            let mut response = Fetch::Url(url)
+                .send()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            let status_code = response.status_code();
+            if !(200..300).contains(&status_code) {
+                return Err(AppError::Api(format!(
+                    "creator period stats request failed with {status_code}"
+                )));
+            }
+            let body = response
+                .text()
+                .await
+                .map_err(|err| AppError::Api(err.to_string()))?;
+            parse_creator_period_stats_response(&body)
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm_clients::WasmDivinerCandidatesClient;
+pub use wasm_clients::{WasmCreatorPeriodStatsClient, WasmDivinerCandidatesClient};

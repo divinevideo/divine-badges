@@ -269,6 +269,14 @@ fn claim_push_notification_sql_only_matches_unnotified_completed_runs() {
     assert!(sql.contains("UPDATE award_runs"));
 }
 
+#[test]
+fn claim_digest_notification_sql_is_idempotent_per_period() {
+    let sql = divine_badges::repository::CLAIM_DIGEST_NOTIFICATION_SQL;
+    assert!(sql.contains("digest_runs"));
+    assert!(sql.contains("notified_at"));
+    assert!(sql.contains("notified_at IS NULL"));
+}
+
 fn complete_award_run() -> AwardRun {
     let mut run = AwardRun::pending("diviner-of-the-day", "2026-08-21", "day");
     run.winner_pubkey = Some("winner-pubkey".into());

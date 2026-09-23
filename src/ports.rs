@@ -93,6 +93,13 @@ pub trait AwardRepository {
         period_key: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AppError>;
+    /// Claim the one-shot digest for a UTC day. True only on the tick that
+    /// first claims it.
+    async fn claim_digest_notification(
+        &self,
+        period_key: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, AppError>;
 }
 
 #[async_trait(?Send)]
@@ -103,6 +110,21 @@ pub trait DivinerCandidatesClient {
         end: DateTime<Utc>,
         candidate_window: usize,
     ) -> Result<Vec<DivinerCandidate>, AppError>;
+}
+
+/// One page of pre-aggregated per-creator stats for a closed UTC period.
+///
+/// `after` is the previous page's last pubkey, or the empty string for the
+/// first page. The endpoint's cursor is exclusive, so a creator inserted
+/// mid-walk cannot shift the window.
+#[async_trait(?Send)]
+pub trait CreatorPeriodStatsClient {
+    async fn stats_page(
+        &self,
+        period_key: &str,
+        limit: usize,
+        after: &str,
+    ) -> Result<Vec<crate::digest::CreatorPeriodStats>, AppError>;
 }
 
 #[async_trait(?Send)]

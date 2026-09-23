@@ -1,6 +1,7 @@
 use crate::awards::award_for_period_kind;
 use crate::clock::{Clock, SystemClock};
 use crate::config::AppConfig;
+use crate::digest::{digest_campaign, fetch_all_stats};
 use crate::discord::{build_announcement_message, build_legacy_announcement_message};
 use crate::eligibility::{
     is_candidate_active_for_period, is_diviner_award_excluded_creator,
@@ -12,7 +13,8 @@ use crate::models::{AwardRun, BadgeDefinitionRecord, DivinerCandidate};
 use crate::nostr::{build_badge_award_tags, SignedNostrEvent};
 use crate::period::closed_periods_for_tick;
 use crate::ports::{
-    AwardRepository, BadgePublisher, CampaignClient, DiscordClient, DivinerCandidatesClient,
+    AwardRepository, BadgePublisher, CampaignClient, CreatorPeriodStatsClient, DiscordClient,
+    DivinerCandidatesClient,
 };
 use crate::state::AwardRunStatus;
 use chrono::{DateTime, Utc};
@@ -26,7 +28,7 @@ pub struct TickOutcome {
     pub runs: Vec<AwardRun>,
 }
 
-pub async fn run_award_tick<R, L, P, D, M>(
+pub async fn run_award_tick<R, L, P, D, M, S>(
     now: DateTime<Utc>,
     config: &AppConfig,
     repository: &R,
@@ -34,6 +36,7 @@ pub async fn run_award_tick<R, L, P, D, M>(
     publisher: &P,
     discord: &D,
     campaigns: &M,
+    stats: &S,
 ) -> Result<TickOutcome, AppError>
 where
     R: AwardRepository,
@@ -41,6 +44,7 @@ where
     P: BadgePublisher,
     D: DiscordClient,
     M: CampaignClient,
+    S: CreatorPeriodStatsClient,
 {
     run_award_tick_with_clock(
         now,
@@ -51,11 +55,13 @@ where
         publisher,
         discord,
         campaigns,
+        stats,
     )
     .await
 }
 
-pub async fn run_award_tick_with_clock<R, L, P, D, M, C>(
+#[allow(clippy::too_many_arguments)]
+pub async fn run_award_tick_with_clock<R, L, P, D, M, S, C>(
     now: DateTime<Utc>,
     clock: &C,
     config: &AppConfig,
@@ -64,6 +70,7 @@ pub async fn run_award_tick_with_clock<R, L, P, D, M, C>(
     publisher: &P,
     discord: &D,
     campaigns: &M,
+    stats: &S,
 ) -> Result<TickOutcome, AppError>
 where
     R: AwardRepository,
@@ -71,11 +78,13 @@ where
     P: BadgePublisher,
     D: DiscordClient,
     M: CampaignClient,
+    S: CreatorPeriodStatsClient,
     C: Clock,
 {
     let mut runs = Vec::new();
+    let periods = closed_periods_for_tick(now);
 
-    for period in closed_periods_for_tick(now) {
+    for period in &periods {
         let award = award_for_period_kind(period.kind)
             .ok_or_else(|| AppError::Config(format!("unknown period kind {}", period.kind)))?;
         let seed = BadgeDefinitionRecord::from_award(&award, &config.divine_badge_image_url);
@@ -262,6 +271,10 @@ where
             notify_engagement(clock, config, repository, campaigns, &delivered).await;
         }
         runs.push(delivered);
+    }
+
+    if let Some(day) = periods.iter().find(|period| period.kind == "day") {
+        run_creator_digest(clock, config, repository, stats, campaigns, &day.key).await;
     }
 
     Ok(TickOutcome { runs })
@@ -505,6 +518,65 @@ fn log_engagement_error(err: &AppError) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn log_engagement_error(_err: &AppError) {}
+
+/// Send the day's creator digest, once.
+///
+/// The stats fetch happens before the claim: claiming first would burn the day
+/// on one transient 500 and never retry. A failed fetch leaves the day
+/// unclaimed. A failed campaign creation is logged and swallowed, so a digest
+/// failure never fails the award tick.
+async fn run_creator_digest<R, S, M, C>(
+    clock: &C,
+    config: &AppConfig,
+    repository: &R,
+    stats: &S,
+    campaigns: &M,
+    period_key: &str,
+) where
+    R: AwardRepository,
+    S: CreatorPeriodStatsClient,
+    M: CampaignClient,
+    C: Clock,
+{
+    if !config.digest_enabled || config.engagement_api_base_url.is_none() {
+        return;
+    }
+
+    let all_stats = match fetch_all_stats(stats, period_key).await {
+        Ok(all_stats) => all_stats,
+        Err(err) => {
+            log_digest_error(&err);
+            return;
+        }
+    };
+
+    match repository
+        .claim_digest_notification(period_key, clock.now())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(err) => {
+            log_digest_error(&err);
+            return;
+        }
+    }
+
+    let Some(campaign) = digest_campaign(period_key, all_stats) else {
+        return;
+    };
+    if let Err(err) = campaigns.create_campaign(&campaign).await {
+        log_digest_error(&err);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn log_digest_error(err: &AppError) {
+    worker::console_error!("creator digest failed: {}", err);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn log_digest_error(_err: &AppError) {}
 
 fn new_discord_claim_token() -> Result<String, AppError> {
     let mut bytes = [0_u8; 16];

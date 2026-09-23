@@ -26,6 +26,21 @@ pub struct AutomatedCampaign {
     pub expires_at: String,
     pub holdout_basis_points: u32,
     pub recipients: Vec<String>,
+    /// Per-recipient copy for digest campaigns. Empty for ordinary campaigns,
+    /// and skipped when serializing, so their payloads stay byte-identical.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub personalized_recipients: Vec<PersonalizedRecipient>,
+}
+
+/// One recipient's own copy, used only where the revision declares
+/// personalization. The revision's approved template remains the fallback.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalizedRecipient {
+    pub pubkey: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub body: String,
 }
 
 /// The winner's own name, or neutral copy when the profile has none.
@@ -63,6 +78,7 @@ pub fn winner_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
         expires_at: expires_at(run),
         holdout_basis_points: 0,
         recipients: vec![winner.to_string()],
+        personalized_recipients: Vec::new(),
     })
 }
 
@@ -88,6 +104,7 @@ pub fn broadcast_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
         expires_at: expires_at(run),
         holdout_basis_points: 0,
         recipients: Vec::new(),
+        personalized_recipients: Vec::new(),
     })
 }
 

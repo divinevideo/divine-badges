@@ -1,6 +1,7 @@
 pub mod awards;
 pub mod clock;
 pub mod config;
+pub mod digest;
 pub mod discord;
 pub mod divine_api;
 pub mod eligibility;

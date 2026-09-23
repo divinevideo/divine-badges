@@ -8,6 +8,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
+use divine_badges::digest::CreatorPeriodStats;
 use divine_badges::divine_api::ranked_candidates_for_period;
 use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
 use divine_badges::engagement::AutomatedCampaign;
@@ -17,7 +18,8 @@ use divine_badges::models::{
 };
 use divine_badges::nostr::{DefinitionPublishResult, SignedNostrEvent};
 use divine_badges::ports::{
-    AwardRepository, BadgePublisher, CampaignClient, DiscordClient, DivinerCandidatesClient,
+    AwardRepository, BadgePublisher, CampaignClient, CreatorPeriodStatsClient, DiscordClient,
+    DivinerCandidatesClient,
 };
 use divine_badges::state::AwardRunStatus;
 use divine_badges::use_cases::{run_award_tick_with_clock, TickOutcome};
@@ -41,6 +43,7 @@ struct FakeRepo {
     prepare_before_mark_preparation_failed: RefCell<bool>,
     discord_claim_times: RefCell<Vec<(DateTime<Utc>, DateTime<Utc>)>>,
     push_notified: RefCell<HashSet<(String, String)>>,
+    digest_notified: RefCell<HashSet<String>>,
 }
 
 impl Default for FakeRepo {
@@ -57,6 +60,7 @@ impl Default for FakeRepo {
             prepare_before_mark_preparation_failed: RefCell::new(false),
             discord_claim_times: RefCell::new(Vec::new()),
             push_notified: RefCell::new(HashSet::new()),
+            digest_notified: RefCell::new(HashSet::new()),
         }
     }
 }
@@ -84,6 +88,10 @@ impl FakeRepo {
             run.clone(),
         );
         run
+    }
+
+    fn digest_claimed(&self, period_key: &str) -> bool {
+        self.digest_notified.borrow().contains(period_key)
     }
 }
 
@@ -525,6 +533,17 @@ impl AwardRepository for FakeRepo {
             .borrow_mut()
             .insert((slug.to_string(), key.to_string())))
     }
+
+    async fn claim_digest_notification(
+        &self,
+        period_key: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<bool, AppError> {
+        Ok(self
+            .digest_notified
+            .borrow_mut()
+            .insert(period_key.to_string()))
+    }
 }
 
 enum CandidateFailure {
@@ -683,6 +702,28 @@ impl CampaignClient for FakeCampaignClient {
     }
 }
 
+#[derive(Default)]
+struct FakeStatsClient {
+    fail: bool,
+    calls: RefCell<Vec<String>>,
+}
+
+#[async_trait(?Send)]
+impl CreatorPeriodStatsClient for FakeStatsClient {
+    async fn stats_page(
+        &self,
+        period_key: &str,
+        _limit: usize,
+        _after: &str,
+    ) -> Result<Vec<CreatorPeriodStats>, AppError> {
+        self.calls.borrow_mut().push(period_key.to_string());
+        if self.fail {
+            return Err(AppError::Api("stats unavailable".into()));
+        }
+        Ok(Vec::new())
+    }
+}
+
 struct InFlightReclaimDiscord<'a> {
     repo: &'a FakeRepo,
     claim_time: DateTime<Utc>,
@@ -725,6 +766,7 @@ fn config() -> AppConfig {
         engagement_api_base_url: None,
         engagement_access_client_id: None,
         engagement_access_client_secret: None,
+        digest_enabled: false,
     }
 }
 
@@ -734,6 +776,13 @@ fn config_with_engagement() -> AppConfig {
         engagement_access_client_id: Some("access-id".into()),
         engagement_access_client_secret: Some("access-secret".into()),
         ..config()
+    }
+}
+
+fn config_with_digest() -> AppConfig {
+    AppConfig {
+        digest_enabled: true,
+        ..config_with_engagement()
     }
 }
 
@@ -868,6 +917,32 @@ async fn execute_with_claim_time(
     publisher: &FakePublisher,
     discord: &FakeDiscord,
 ) -> Result<TickOutcome, AppError> {
+    execute_with_claim_time_and_stats(
+        tick_started_at,
+        claim_time,
+        config,
+        campaigns,
+        repo,
+        candidates,
+        publisher,
+        discord,
+        &FakeStatsClient::default(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_with_claim_time_and_stats(
+    tick_started_at: DateTime<Utc>,
+    claim_time: DateTime<Utc>,
+    config: &AppConfig,
+    campaigns: &FakeCampaignClient,
+    repo: &FakeRepo,
+    candidates: &FakeCandidates,
+    publisher: &FakePublisher,
+    discord: &FakeDiscord,
+    stats: &FakeStatsClient,
+) -> Result<TickOutcome, AppError> {
     run_award_tick_with_clock(
         tick_started_at,
         &FakeClock(claim_time),
@@ -877,6 +952,7 @@ async fn execute_with_claim_time(
         publisher,
         discord,
         campaigns,
+        stats,
     )
     .await
 }
@@ -1750,6 +1826,7 @@ fn webhook_timeout_finishes_before_the_discord_lease_can_be_reclaimed() {
             &publisher,
             &discord,
             &FakeCampaignClient::default(),
+            &FakeStatsClient::default(),
         )
         .await
         .unwrap();
@@ -2270,5 +2347,41 @@ fn no_campaigns_without_a_configured_engagement_url() {
         .expect("tick");
 
         assert!(campaigns.created.borrow().is_empty());
+    });
+}
+
+#[test]
+fn a_failed_stats_fetch_leaves_the_day_unclaimed() {
+    // Review Focus 4: recoverability, not just non-truncation.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            fail: true,
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick");
+
+        assert!(!repo.digest_claimed("2026-04-14"));
     });
 }
