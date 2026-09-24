@@ -105,6 +105,14 @@ pub const CLAIM_DIGEST_NOTIFICATION_SQL: &str =
 pub const DIGEST_ALREADY_NOTIFIED_SQL: &str = "SELECT period_key FROM digest_runs \
      WHERE period_key = ?1 AND notified_at IS NOT NULL";
 
+/// Give back a digest claim whose campaign was not created.
+///
+/// Matching the claim's own timestamp releases only that claim, never one a
+/// later tick has taken since.
+pub const RELEASE_DIGEST_NOTIFICATION_SQL: &str = "UPDATE digest_runs \
+     SET notified_at = NULL \
+     WHERE period_key = ?1 AND notified_at = ?2";
+
 /// Give back a push notification claim whose campaigns were not created.
 ///
 /// Matching the claim's own timestamp releases only that claim, never one a
@@ -729,6 +737,24 @@ mod d1_repository {
                 .await
                 .map_err(repository_error)?;
             Ok(row.is_some())
+        }
+
+        async fn release_digest_notification(
+            &self,
+            period_key: &str,
+            claimed_at: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), AppError> {
+            self.db
+                .prepare(crate::repository::RELEASE_DIGEST_NOTIFICATION_SQL)
+                .bind(&[
+                    JsValue::from_str(period_key),
+                    JsValue::from_str(&claimed_at.to_rfc3339()),
+                ])
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+            Ok(())
         }
 
         async fn release_push_notification(

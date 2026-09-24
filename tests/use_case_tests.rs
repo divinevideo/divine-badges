@@ -549,6 +549,15 @@ impl AwardRepository for FakeRepo {
         Ok(self.digest_notified.borrow().contains(period_key))
     }
 
+    async fn release_digest_notification(
+        &self,
+        period_key: &str,
+        _claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError> {
+        self.digest_notified.borrow_mut().remove(period_key);
+        Ok(())
+    }
+
     async fn release_push_notification(
         &self,
         slug: &str,
@@ -2558,5 +2567,66 @@ fn the_digest_is_sent_once_and_later_ticks_do_not_walk_the_stats_endpoint_again(
             1,
             "a sent digest must not walk the stats endpoint again"
         );
+    });
+}
+
+#[test]
+fn a_failed_digest_campaign_releases_the_day_and_a_later_tick_sends_it() {
+    // Same recovery the Diviner push has: the claim must not burn the day on
+    // one engagement outage. The automation key is per day, so a retry after
+    // an ambiguous failure cannot create a second campaign.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::failing();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12)],
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick during outage");
+        assert!(!repo.digest_claimed("2026-04-14"));
+
+        *campaigns.failure.borrow_mut() = false;
+        let later = tick() + chrono::Duration::hours(1);
+        execute_with_claim_time_and_stats(
+            later,
+            later,
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick after recovery");
+
+        let created = campaigns.created.borrow();
+        let digests: Vec<&AutomatedCampaign> = created
+            .iter()
+            .filter(|campaign| campaign.automation_key.starts_with("creator-digest-"))
+            .collect();
+        assert_eq!(digests.len(), 1);
+        assert!(repo.digest_claimed("2026-04-14"));
     });
 }

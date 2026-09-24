@@ -287,6 +287,14 @@ fn digest_already_notified_sql_reads_only_a_claimed_day() {
 }
 
 #[test]
+fn release_digest_notification_sql_only_releases_its_own_claim() {
+    let sql = divine_badges::repository::RELEASE_DIGEST_NOTIFICATION_SQL;
+    assert!(sql.contains("UPDATE digest_runs"));
+    assert!(sql.contains("SET notified_at = NULL"));
+    assert!(sql.contains("notified_at = ?2"));
+}
+
+#[test]
 fn release_push_notification_sql_only_releases_its_own_claim() {
     let sql = divine_badges::repository::RELEASE_PUSH_NOTIFICATION_SQL;
     assert!(sql.contains("SET push_notified_at = NULL"));

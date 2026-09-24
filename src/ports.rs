@@ -106,6 +106,13 @@ pub trait AwardRepository {
     /// the later ticks of the same day can skip the stats walk instead of
     /// paying for it and then discarding the result.
     async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError>;
+    /// Give back a digest claim whose campaign was not created, so a later
+    /// tick of the same day can send it.
+    async fn release_digest_notification(
+        &self,
+        period_key: &str,
+        claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
     async fn release_push_notification(
         &self,
         award_slug: &str,

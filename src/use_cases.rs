@@ -545,8 +545,10 @@ fn log_engagement_error(_err: &AppError) {}
 ///
 /// The stats fetch happens before the claim: claiming first would burn the day
 /// on one transient 500 and never retry. A failed fetch leaves the day
-/// unclaimed. A failed campaign creation is logged and swallowed, so a digest
-/// failure never fails the award tick.
+/// unclaimed. A failed campaign creation releases the claim so a later tick
+/// retries; the per-day automation key keeps that retry from creating a second
+/// campaign. Either failure is logged and swallowed, so a digest failure never
+/// fails the award tick.
 ///
 /// The tick is hourly and every tick of a day sees the same closed day, so the
 /// already-sent read comes first. Without it the other 23 ticks would each
@@ -586,8 +588,9 @@ async fn run_creator_digest<R, S, M, C>(
         }
     };
 
+    let claimed_at = clock.now();
     match repository
-        .claim_digest_notification(period_key, clock.now())
+        .claim_digest_notification(period_key, claimed_at)
         .await
     {
         Ok(true) => {}
@@ -603,6 +606,12 @@ async fn run_creator_digest<R, S, M, C>(
     };
     if let Err(err) = campaigns.create_campaign(&campaign).await {
         log_digest_error(&err);
+        if let Err(err) = repository
+            .release_digest_notification(period_key, claimed_at)
+            .await
+        {
+            log_digest_error(&err);
+        }
     }
 }
 
