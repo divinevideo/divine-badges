@@ -105,6 +105,14 @@ pub const CLAIM_DIGEST_NOTIFICATION_SQL: &str =
 pub const DIGEST_ALREADY_NOTIFIED_SQL: &str = "SELECT period_key FROM digest_runs \
      WHERE period_key = ?1 AND notified_at IS NOT NULL";
 
+/// Give back a push notification claim whose campaigns were not created.
+///
+/// Matching the claim's own timestamp releases only that claim, never one a
+/// later tick has taken since.
+pub const RELEASE_PUSH_NOTIFICATION_SQL: &str = "UPDATE award_runs \
+     SET push_notified_at = NULL \
+     WHERE award_slug = ?1 AND period_key = ?2 AND push_notified_at = ?3";
+
 pub fn award_run_insert_bindings(run: &AwardRun, now: &str) -> Vec<AwardRunSqlValue> {
     vec![
         text(&run.award_slug),
@@ -721,6 +729,26 @@ mod d1_repository {
                 .await
                 .map_err(repository_error)?;
             Ok(row.is_some())
+        }
+
+        async fn release_push_notification(
+            &self,
+            award_slug: &str,
+            period_key: &str,
+            claimed_at: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), AppError> {
+            self.db
+                .prepare(crate::repository::RELEASE_PUSH_NOTIFICATION_SQL)
+                .bind(&[
+                    JsValue::from_str(award_slug),
+                    JsValue::from_str(period_key),
+                    JsValue::from_str(&claimed_at.to_rfc3339()),
+                ])
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+            Ok(())
         }
     }
 

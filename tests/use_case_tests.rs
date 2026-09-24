@@ -548,6 +548,18 @@ impl AwardRepository for FakeRepo {
     async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
         Ok(self.digest_notified.borrow().contains(period_key))
     }
+
+    async fn release_push_notification(
+        &self,
+        slug: &str,
+        key: &str,
+        _claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError> {
+        self.push_notified
+            .borrow_mut()
+            .remove(&(slug.to_string(), key.to_string()));
+        Ok(())
+    }
 }
 
 enum CandidateFailure {
@@ -683,14 +695,14 @@ impl DiscordClient for FakeDiscord {
 #[derive(Default)]
 struct FakeCampaignClient {
     created: RefCell<Vec<AutomatedCampaign>>,
-    failure: bool,
+    failure: RefCell<bool>,
 }
 
 impl FakeCampaignClient {
     fn failing() -> Self {
         Self {
             created: RefCell::new(Vec::new()),
-            failure: true,
+            failure: RefCell::new(true),
         }
     }
 }
@@ -698,7 +710,7 @@ impl FakeCampaignClient {
 #[async_trait(?Send)]
 impl CampaignClient for FakeCampaignClient {
     async fn create_campaign(&self, campaign: &AutomatedCampaign) -> Result<(), AppError> {
-        if self.failure {
+        if *self.failure.borrow() {
             return Err(AppError::Api("engagement unavailable".into()));
         }
         self.created.borrow_mut().push(campaign.clone());
@@ -2335,6 +2347,90 @@ fn an_engagement_outage_does_not_fail_the_award_tick() {
             "the award must complete even if notification fails"
         );
         assert_eq!(outcome.unwrap().runs[0].status, AwardRunStatus::Completed);
+    });
+}
+
+#[test]
+fn a_failed_notification_is_not_recorded_as_sent_and_a_later_tick_retries_it() {
+    // Review Focus 4: the notification must not be recorded as sent.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::failing();
+        let config = config_with_engagement();
+
+        execute_with_claim_time(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("tick during outage");
+        assert!(campaigns.created.borrow().is_empty());
+        assert!(repo.push_notified.borrow().is_empty());
+
+        *campaigns.failure.borrow_mut() = false;
+        let later = tick() + chrono::Duration::hours(1);
+        execute_with_claim_time(
+            later,
+            later,
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("tick after recovery");
+
+        assert_eq!(campaigns.created.borrow().len(), 2);
+        assert_eq!(repo.push_notified.borrow().len(), 1);
+    });
+}
+
+#[test]
+fn no_campaigns_without_engagement_access_credentials() {
+    // Unconfigured means closed: a URL without credentials cannot authenticate.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let config = AppConfig {
+            engagement_access_client_secret: None,
+            ..config_with_engagement()
+        };
+
+        execute_with_claim_time(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+        )
+        .await
+        .expect("tick");
+
+        assert!(campaigns.created.borrow().is_empty());
+        assert!(repo.push_notified.borrow().is_empty());
     });
 }
 

@@ -106,6 +106,12 @@ pub trait AwardRepository {
     /// the later ticks of the same day can skip the stats walk instead of
     /// paying for it and then discarding the result.
     async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError>;
+    async fn release_push_notification(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
 }
 
 #[async_trait(?Send)]
