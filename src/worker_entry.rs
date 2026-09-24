@@ -6,6 +6,7 @@ mod wasm_entry {
     use crate::config::{binding_string, AppConfig};
     use crate::discord::WasmDiscordClient;
     use crate::divine_api::WasmDivinerCandidatesClient;
+    use crate::engagement::EngagementCampaignClient;
     use crate::landing_page::{build_view, render_page};
     use crate::nip19::encode_npub;
     use crate::profile::{build_profile_event, DIVINE_BADGES_PROFILE};
@@ -55,6 +56,7 @@ mod wasm_entry {
         let publisher =
             WasmRelayClient::new(config.divine_relay_url.clone(), &config.nostr_issuer_nsec)
                 .map_err(|error| error.to_string())?;
+        let campaigns = EngagementCampaignClient::from_config(&config);
         let discord = WasmDiscordClient::new(config.discord_webhook_url.clone());
         let clock = SystemClock;
 
@@ -65,6 +67,7 @@ mod wasm_entry {
             &candidates,
             &publisher,
             &discord,
+            &campaigns,
         )
         .await
         .map_err(|error| error.to_string())?;

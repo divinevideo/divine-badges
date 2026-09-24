@@ -10,9 +10,22 @@ pub struct AppConfig {
     pub discord_webhook_url: String,
     pub divine_badge_image_url: String,
     pub divine_creator_base_url: String,
+    pub engagement_api_base_url: Option<String>,
+    pub engagement_access_client_id: Option<String>,
+    pub engagement_access_client_secret: Option<String>,
 }
 
 impl AppConfig {
+    /// The campaign API's base URL and Access credentials, only when all
+    /// three are configured. Anything less leaves campaign creation off.
+    pub fn engagement_api(&self) -> Option<(&str, &str, &str)> {
+        Some((
+            self.engagement_api_base_url.as_deref()?,
+            self.engagement_access_client_id.as_deref()?,
+            self.engagement_access_client_secret.as_deref()?,
+        ))
+    }
+
     pub fn creator_link(&self, nip05: Option<&str>, pubkey: &str) -> String {
         creator_link_for_base(&self.divine_creator_base_url, nip05, pubkey)
     }
@@ -80,8 +93,24 @@ impl AppConfig {
             discord_webhook_url: binding_string(env, "DISCORD_WEBHOOK_URL")?,
             divine_badge_image_url: binding_string(env, "DIVINE_BADGE_IMAGE_URL")?,
             divine_creator_base_url: binding_string(env, "DIVINE_CREATOR_BASE_URL")?,
+            engagement_api_base_url: optional_binding_string(env, "ENGAGEMENT_API_BASE_URL"),
+            engagement_access_client_id: optional_binding_string(
+                env,
+                "ENGAGEMENT_ACCESS_CLIENT_ID",
+            ),
+            engagement_access_client_secret: optional_binding_string(
+                env,
+                "ENGAGEMENT_ACCESS_CLIENT_SECRET",
+            ),
         })
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn optional_binding_string(env: &worker::Env, name: &str) -> Option<String> {
+    binding_string(env, name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 #[cfg(target_arch = "wasm32")]

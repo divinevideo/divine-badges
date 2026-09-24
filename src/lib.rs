@@ -4,6 +4,7 @@ pub mod config;
 pub mod discord;
 pub mod divine_api;
 pub mod eligibility;
+pub mod engagement;
 pub mod error;
 pub mod landing_page;
 pub mod models;

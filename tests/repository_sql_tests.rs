@@ -261,6 +261,21 @@ fn status_transition_sql_is_monotonic_and_discord_delivery_is_leased() {
     assert!(mark_completed_sql().contains("discord_message_sent = 1"));
 }
 
+#[test]
+fn claim_push_notification_sql_only_matches_unnotified_completed_runs() {
+    let sql = divine_badges::repository::CLAIM_PUSH_NOTIFICATION_SQL;
+    assert!(sql.contains("push_notified_at IS NULL"));
+    assert!(sql.contains("status = 'completed'"));
+    assert!(sql.contains("UPDATE award_runs"));
+}
+
+#[test]
+fn release_push_notification_sql_only_releases_its_own_claim() {
+    let sql = divine_badges::repository::RELEASE_PUSH_NOTIFICATION_SQL;
+    assert!(sql.contains("SET push_notified_at = NULL"));
+    assert!(sql.contains("push_notified_at = ?3"));
+}
+
 fn complete_award_run() -> AwardRun {
     let mut run = AwardRun::pending("diviner-of-the-day", "2026-08-21", "day");
     run.winner_pubkey = Some("winner-pubkey".into());

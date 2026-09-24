@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use crate::awards::AwardDefinition;
+use crate::engagement::AutomatedCampaign;
 use crate::error::AppError;
 use crate::models::{AwardRun, BadgeDefinitionRecord, DiscordDeliveryClaim, DivinerCandidate};
 use crate::nostr::{DefinitionPublishResult, SignedNostrEvent};
@@ -86,6 +87,18 @@ pub trait AwardRepository {
         award_slug: &str,
         period_key: &str,
     ) -> Result<AwardRun, AppError>;
+    async fn claim_push_notification(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, AppError>;
+    async fn release_push_notification(
+        &self,
+        award_slug: &str,
+        period_key: &str,
+        claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
 }
 
 #[async_trait(?Send)]
@@ -124,4 +137,9 @@ pub trait DiscordClient {
         message: &str,
         timeout: std::time::Duration,
     ) -> Result<(), AppError>;
+}
+
+#[async_trait(?Send)]
+pub trait CampaignClient {
+    async fn create_campaign(&self, campaign: &AutomatedCampaign) -> Result<(), AppError>;
 }

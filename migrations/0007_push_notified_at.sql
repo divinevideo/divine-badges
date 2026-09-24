@@ -1,0 +1,1 @@
+ALTER TABLE award_runs ADD COLUMN push_notified_at TEXT;
