@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
-use divine_badges::digest::CreatorPeriodStats;
+use divine_badges::digest::{CreatorPeriodStats, CreatorPeriodStatsResponse};
 use divine_badges::divine_api::ranked_candidates_for_period;
 use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
 use divine_badges::engagement::AutomatedCampaign;
@@ -741,12 +741,15 @@ impl CreatorPeriodStatsClient for FakeStatsClient {
         period_key: &str,
         _limit: usize,
         _after: &str,
-    ) -> Result<Vec<CreatorPeriodStats>, AppError> {
+    ) -> Result<CreatorPeriodStatsResponse, AppError> {
         self.calls.borrow_mut().push(period_key.to_string());
         if self.fail {
             return Err(AppError::Api("stats unavailable".into()));
         }
-        Ok(self.entries.clone())
+        Ok(CreatorPeriodStatsResponse {
+            entries: self.entries.clone(),
+            next_after: None,
+        })
     }
 }
 

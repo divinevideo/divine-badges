@@ -143,7 +143,7 @@ pub trait CreatorPeriodStatsClient {
         period_key: &str,
         limit: usize,
         after: &str,
-    ) -> Result<Vec<crate::digest::CreatorPeriodStats>, AppError>;
+    ) -> Result<crate::digest::CreatorPeriodStatsResponse, AppError>;
 }
 
 #[async_trait(?Send)]

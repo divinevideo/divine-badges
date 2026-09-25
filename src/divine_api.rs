@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use k256::schnorr::VerifyingKey;
 use url::Url;
 
-use crate::digest::{CreatorPeriodStats, CreatorPeriodStatsResponse};
+use crate::digest::CreatorPeriodStatsResponse;
 use crate::error::AppError;
 use crate::models::{DivinerCandidate, DivinerCandidatesResponse};
 
@@ -194,12 +194,20 @@ pub fn build_creator_period_stats_url(
     Ok(url)
 }
 
+/// Parse one stats page. `next_after` must be present, even as `null`: serde
+/// would read a missing field as `None`, and a response without the field
+/// would then end the walk after one page and look complete.
 pub fn parse_creator_period_stats_response(
     body: &str,
-) -> Result<Vec<CreatorPeriodStats>, AppError> {
-    let response: CreatorPeriodStatsResponse =
+) -> Result<CreatorPeriodStatsResponse, AppError> {
+    let value: serde_json::Value =
         serde_json::from_str(body).map_err(|err| AppError::Api(err.to_string()))?;
-    Ok(response.entries)
+    if value.get("next_after").is_none() {
+        return Err(AppError::Api(
+            "creator period stats response has no next_after".into(),
+        ));
+    }
+    serde_json::from_value(value).map_err(|err| AppError::Api(err.to_string()))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -272,7 +280,7 @@ mod wasm_clients {
             period_key: &str,
             limit: usize,
             after: &str,
-        ) -> Result<Vec<crate::digest::CreatorPeriodStats>, AppError> {
+        ) -> Result<crate::digest::CreatorPeriodStatsResponse, AppError> {
             let url = build_creator_period_stats_url(&self.base_url, period_key, limit, after)?;
             let mut response = Fetch::Url(url)
                 .send()

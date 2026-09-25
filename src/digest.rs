@@ -12,12 +12,18 @@ use crate::engagement::{AutomatedCampaign, PersonalizedRecipient};
 use crate::error::AppError;
 use crate::ports::CreatorPeriodStatsClient;
 
-/// Page size requested from the endpoint. Ten full pages is the 5000-creator
-/// audience cap.
+/// Page size requested from the endpoint.
 pub const DIGEST_PAGE_LIMIT: usize = 500;
 
-/// The one audience cap, in pages. Exceeding it fails; nothing truncates.
-pub const DIGEST_MAX_PAGES: usize = 10;
+/// The one audience cap: engagement's `explicit_pubkey_list` maximum.
+/// Exceeding it fails; nothing truncates.
+pub const DIGEST_AUDIENCE_CAP: usize = 5000;
+
+/// Bound on requests per walk. The endpoint scans up to one page of activity
+/// candidates per request and drops those without a public video, so a page
+/// can be short, or empty, and still have more behind it. This caps the cost
+/// of one walk at 20,000 scanned candidates; it is not the audience cap.
+pub const DIGEST_MAX_PAGES: usize = 40;
 
 /// One creator's engagement for a closed UTC period. Field names match the
 /// endpoint's JSON, so deserialization needs no renaming.
@@ -32,10 +38,14 @@ pub struct CreatorPeriodStats {
     pub reposts: i64,
 }
 
-/// The endpoint response, reduced to the entries the digest needs.
+/// One page of the endpoint response, reduced to what the digest needs.
+///
+/// `next_after` is the cursor for the next request, or `None` when the walk is
+/// complete. It is the only end-of-walk signal: a short page is not the end.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct CreatorPeriodStatsResponse {
     pub entries: Vec<CreatorPeriodStats>,
+    pub next_after: Option<String>,
 }
 
 fn metric(count: i64, singular: &str, plural: &str) -> String {
@@ -118,12 +128,12 @@ pub fn digest_campaign(
 
 /// Walk every creator with activity in the period, or fail.
 ///
-/// Pages with `limit=500` from an empty cursor, sending the last entry's
-/// pubkey as the next `after`. A page shorter than the limit is the true end,
-/// because the endpoint applies the recipient gate and the zero-activity
-/// `HAVING` before its own `LIMIT`. Any error propagates: a partial list must
-/// never look complete. A full tenth page means the day exceeded the 5000
-/// cap, and an arbitrary 5000 of them is the wrong answer.
+/// Pages with `limit=500` from an empty cursor, sending each response's
+/// `next_after` as the next `after` until it is `None`. Any error propagates:
+/// a partial list must never look complete. More than 5000 creators means the
+/// day exceeded the audience cap, and an arbitrary 5000 of them is the wrong
+/// answer. A cursor that does not advance, or a walk longer than
+/// `DIGEST_MAX_PAGES`, also fails rather than looping or truncating.
 pub async fn fetch_all_stats<C: CreatorPeriodStatsClient>(
     client: &C,
     period_key: &str,
@@ -137,24 +147,31 @@ pub async fn fetch_all_stats<C: CreatorPeriodStatsClient>(
         let page = client
             .stats_page(period_key, DIGEST_PAGE_LIMIT, &after)
             .await?;
-        let page_len = page.len();
-        let next_after = page.last().map(|entry| entry.pubkey.clone());
-        for entry in page {
+        pages += 1;
+        for entry in page.entries {
             if seen.insert(entry.pubkey.clone()) {
                 collected.push(entry);
             }
         }
-        pages += 1;
-        if page_len < DIGEST_PAGE_LIMIT {
+        if collected.len() > DIGEST_AUDIENCE_CAP {
+            return Err(AppError::Api(format!(
+                "creator digest for {period_key} exceeded the {DIGEST_AUDIENCE_CAP} creator audience cap"
+            )));
+        }
+        let Some(next_after) = page.next_after else {
             break;
+        };
+        if next_after <= after {
+            return Err(AppError::Api(format!(
+                "creator digest for {period_key} got a cursor that did not advance"
+            )));
         }
         if pages >= DIGEST_MAX_PAGES {
             return Err(AppError::Api(format!(
-                "creator digest for {period_key} exceeded the {} creator audience cap",
-                DIGEST_PAGE_LIMIT * DIGEST_MAX_PAGES
+                "creator digest for {period_key} did not finish within {DIGEST_MAX_PAGES} pages"
             )));
         }
-        after = next_after.unwrap_or_default();
+        after = next_after;
     }
 
     Ok(collected)
