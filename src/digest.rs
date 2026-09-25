@@ -8,7 +8,7 @@
 
 use serde::Deserialize;
 
-use crate::engagement::{AutomatedCampaign, PersonalizedRecipient};
+use crate::engagement::{announce_day_expiry, AutomatedCampaign, PersonalizedRecipient};
 use crate::error::AppError;
 use crate::ports::CreatorPeriodStatsClient;
 
@@ -89,10 +89,14 @@ pub fn digest_body(stats: &CreatorPeriodStats) -> Option<String> {
 }
 
 /// Build the day's digest campaign, or `None` when no creator has activity.
+///
+/// The digest for day D is sent on D+1, so it expires with the Diviner
+/// campaigns at the end of D+1, not at the end of the day it reports on.
 pub fn digest_campaign(
     period_key: &str,
     stats: Vec<CreatorPeriodStats>,
 ) -> Option<AutomatedCampaign> {
+    let expires_at = announce_day_expiry(period_key)?;
     let personalized_recipients: Vec<PersonalizedRecipient> = stats
         .into_iter()
         .filter_map(|entry| {
@@ -119,7 +123,7 @@ pub fn digest_campaign(
         motivation: "Tell creators what their work earned today.".to_string(),
         success_metric: "Creator opens their analytics".to_string(),
         guardrail_metric: "Campaign opt-out rate".to_string(),
-        expires_at: format!("{period_key}T23:59:59Z"),
+        expires_at,
         holdout_basis_points: 0,
         recipients: Vec::new(),
         personalized_recipients,

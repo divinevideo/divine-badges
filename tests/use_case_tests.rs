@@ -2565,6 +2565,11 @@ fn the_digest_is_sent_once_and_later_ticks_do_not_walk_the_stats_endpoint_again(
         assert_eq!(digests.len(), 1);
         assert_eq!(digests[0].automation_key, "creator-digest-2026-04-14");
         assert_eq!(digests[0].personalized_recipients.len(), 2);
+        let expires_at: DateTime<Utc> = digests[0].expires_at.parse().expect("expires_at");
+        assert!(
+            expires_at > tick(),
+            "the digest must not be expired when it is created"
+        );
         assert_eq!(
             stats.calls.borrow().len(),
             1,

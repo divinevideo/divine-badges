@@ -86,7 +86,9 @@ fn digest_campaign_carries_one_body_per_creator_and_no_holdout() {
     assert!(!campaign.motivation.is_empty());
     assert!(!campaign.success_metric.is_empty());
     assert!(!campaign.guardrail_metric.is_empty());
-    assert_eq!(campaign.expires_at, "2026-09-22T23:59:59Z");
+    // Sent on 2026-09-23, so it must still be deliverable through that day.
+    // The end of 2026-09-22 is already past when the campaign is created.
+    assert_eq!(campaign.expires_at, "2026-09-24T00:00:00Z");
 
     let bodies: Vec<&str> = campaign
         .personalized_recipients
