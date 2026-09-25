@@ -567,7 +567,9 @@ async fn run_creator_digest<R, S, M, C>(
     M: CampaignClient,
     C: Clock,
 {
-    if !config.digest_enabled || config.engagement_api_base_url.is_none() {
+    // Same gate as the campaign client: a URL without Access credentials
+    // builds a client that never sends, and the day would be claimed anyway.
+    if !config.digest_enabled || config.engagement_api().is_none() {
         return;
     }
 

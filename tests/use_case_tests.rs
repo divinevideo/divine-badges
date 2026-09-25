@@ -2638,3 +2638,45 @@ fn a_failed_digest_campaign_releases_the_day_and_a_later_tick_sends_it() {
         assert!(repo.digest_claimed("2026-04-14"));
     });
 }
+
+#[test]
+fn no_digest_without_engagement_access_credentials() {
+    // Without credentials the campaign client never sends, so walking the
+    // stats and claiming the day would record a digest nobody received.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12)],
+            ..Default::default()
+        };
+        let config = AppConfig {
+            engagement_access_client_secret: None,
+            ..config_with_digest()
+        };
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick");
+
+        assert!(stats.calls.borrow().is_empty());
+        assert!(!repo.digest_claimed("2026-04-14"));
+        assert!(campaigns.created.borrow().is_empty());
+    });
+}
