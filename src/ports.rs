@@ -133,9 +133,9 @@ pub trait DivinerCandidatesClient {
 
 /// One page of pre-aggregated per-creator stats for a closed UTC period.
 ///
-/// `after` is the previous page's last pubkey, or the empty string for the
-/// first page. The endpoint's cursor is exclusive, so a creator inserted
-/// mid-walk cannot shift the window.
+/// `after` is the previous response's `next_after`, or the empty string for
+/// the first page. The endpoint's cursor is an exclusive pubkey keyset, so a
+/// creator inserted mid-walk cannot shift the window.
 #[async_trait(?Send)]
 pub trait CreatorPeriodStatsClient {
     async fn stats_page(
