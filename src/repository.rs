@@ -86,6 +86,35 @@ pub const CLAIM_PUSH_NOTIFICATION_SQL: &str = "UPDATE award_runs \
      WHERE award_slug = ?2 AND period_key = ?3 \
        AND status = 'completed' AND push_notified_at IS NULL";
 
+/// Claim the one-shot digest for a UTC day.
+///
+/// The upsert creates the row on first use and the `notified_at IS NULL`
+/// predicate makes the claim idempotent: a second tick over the same day
+/// changes no rows and claims nothing. `recipient_count` records how close
+/// the day came to the 5000-creator audience cap.
+pub const CLAIM_DIGEST_NOTIFICATION_SQL: &str =
+    "INSERT INTO digest_runs (period_key, notified_at, recipient_count) \
+     VALUES (?1, ?2, ?3) \
+     ON CONFLICT(period_key) DO UPDATE SET notified_at = excluded.notified_at, \
+       recipient_count = excluded.recipient_count \
+     WHERE digest_runs.notified_at IS NULL";
+
+/// Whether the UTC day's digest has already been sent.
+///
+/// Every hourly tick sees the same closed day, so the claim alone would let
+/// all 23 later ticks walk the whole stats endpoint before discovering there
+/// is nothing to do. This read is what makes them cheap.
+pub const DIGEST_ALREADY_NOTIFIED_SQL: &str = "SELECT period_key FROM digest_runs \
+     WHERE period_key = ?1 AND notified_at IS NOT NULL";
+
+/// Give back a digest claim whose campaign was not created.
+///
+/// Matching the claim's own timestamp releases only that claim, never one a
+/// later tick has taken since.
+pub const RELEASE_DIGEST_NOTIFICATION_SQL: &str = "UPDATE digest_runs \
+     SET notified_at = NULL \
+     WHERE period_key = ?1 AND notified_at = ?2";
+
 /// Give back a push notification claim whose campaigns were not created.
 ///
 /// Matching the claim's own timestamp releases only that claim, never one a
@@ -672,6 +701,64 @@ mod d1_repository {
                 .and_then(|meta| meta.changes)
                 .unwrap_or(0);
             Ok(result.success() && changes > 0)
+        }
+
+        async fn claim_digest_notification(
+            &self,
+            period_key: &str,
+            now: chrono::DateTime<chrono::Utc>,
+            recipient_count: usize,
+        ) -> Result<bool, AppError> {
+            let result = self
+                .db
+                .prepare(crate::repository::CLAIM_DIGEST_NOTIFICATION_SQL)
+                .bind(&[
+                    JsValue::from_str(period_key),
+                    JsValue::from_str(&now.to_rfc3339()),
+                    JsValue::from_f64(recipient_count as f64),
+                ])
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+            let changes = result
+                .meta()
+                .map_err(repository_error)?
+                .and_then(|meta| meta.changes)
+                .unwrap_or(0);
+            Ok(result.success() && changes > 0)
+        }
+
+        async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
+            let statement = self
+                .db
+                .prepare(crate::repository::DIGEST_ALREADY_NOTIFIED_SQL)
+                .bind(&[JsValue::from_str(period_key)])
+                .map_err(repository_error)?;
+
+            let row: Option<String> = statement
+                .first(Some("period_key"))
+                .await
+                .map_err(repository_error)?;
+            Ok(row.is_some())
+        }
+
+        async fn release_digest_notification(
+            &self,
+            period_key: &str,
+            claimed_at: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), AppError> {
+            self.db
+                .prepare(crate::repository::RELEASE_DIGEST_NOTIFICATION_SQL)
+                .bind(&[
+                    JsValue::from_str(period_key),
+                    JsValue::from_str(&claimed_at.to_rfc3339()),
+                ])
+                .map_err(repository_error)?
+                .run()
+                .await
+                .map_err(repository_error)?;
+            Ok(())
         }
 
         async fn release_push_notification(

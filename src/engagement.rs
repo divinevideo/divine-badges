@@ -27,6 +27,21 @@ pub struct AutomatedCampaign {
     pub expires_at: String,
     pub holdout_basis_points: u32,
     pub recipients: Vec<String>,
+    /// Per-recipient copy for digest campaigns. Empty for ordinary campaigns,
+    /// and skipped when serializing, so their payloads stay byte-identical.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub personalized_recipients: Vec<PersonalizedRecipient>,
+}
+
+/// One recipient's own copy, used only where the revision declares
+/// personalization. The revision's approved template remains the fallback.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalizedRecipient {
+    pub pubkey: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub body: String,
 }
 
 /// The winner's own name, or neutral copy when the profile has none.
@@ -42,17 +57,23 @@ fn winner_label(run: &AwardRun) -> &str {
 /// A campaign expires at the end of the UTC day it announces: a Diviner
 /// notification arriving two days late is worse than one that never arrives.
 ///
-/// The award for day D is only decided once D has closed, so the campaign
-/// is created and announced on D+1 and expires when D+1 ends. Expiring at the
-/// end of D itself would make every campaign expired on arrival.
-///
 /// Only the daily award has campaigns: the copy and keys speak of "today",
 /// and a week or month key is not a date.
 fn expires_at(run: &AwardRun) -> Option<String> {
     if run.period_type != "day" {
         return None;
     }
-    let day = NaiveDate::parse_from_str(&run.period_key, "%F").ok()?;
+    announce_day_expiry(&run.period_key)
+}
+
+/// The end of the UTC day a closed daily period is announced on, or `None`
+/// when `period_key` is not a date.
+///
+/// Day D is only closed once it has ended, so its campaigns are created and
+/// announced on D+1 and expire when D+1 ends. Expiring at the end of D itself
+/// would make every campaign expired on arrival.
+pub fn announce_day_expiry(period_key: &str) -> Option<String> {
+    let day = NaiveDate::parse_from_str(period_key, "%F").ok()?;
     let announce_day_end = day.checked_add_signed(Duration::days(2))?;
     Some(format!("{}T00:00:00Z", announce_day_end.format("%F")))
 }
@@ -77,6 +98,7 @@ pub fn winner_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
         expires_at,
         holdout_basis_points: 0,
         recipients: vec![winner.to_string()],
+        personalized_recipients: Vec::new(),
     })
 }
 
@@ -103,6 +125,7 @@ pub fn broadcast_campaign(run: &AwardRun) -> Option<AutomatedCampaign> {
         expires_at,
         holdout_basis_points: 0,
         recipients: Vec::new(),
+        personalized_recipients: Vec::new(),
     })
 }
 

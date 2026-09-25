@@ -8,6 +8,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use divine_badges::awards::award_for_period_kind;
 use divine_badges::clock::Clock;
 use divine_badges::config::AppConfig;
+use divine_badges::digest::{CreatorPeriodStats, CreatorPeriodStatsResponse};
 use divine_badges::divine_api::ranked_candidates_for_period;
 use divine_badges::eligibility::DIVINER_AWARD_EXCLUDED_PUBKEYS;
 use divine_badges::engagement::AutomatedCampaign;
@@ -17,7 +18,8 @@ use divine_badges::models::{
 };
 use divine_badges::nostr::{DefinitionPublishResult, SignedNostrEvent};
 use divine_badges::ports::{
-    AwardRepository, BadgePublisher, CampaignClient, DiscordClient, DivinerCandidatesClient,
+    AwardRepository, BadgePublisher, CampaignClient, CreatorPeriodStatsClient, DiscordClient,
+    DivinerCandidatesClient,
 };
 use divine_badges::state::AwardRunStatus;
 use divine_badges::use_cases::{run_award_tick_with_clock, TickOutcome};
@@ -41,6 +43,8 @@ struct FakeRepo {
     prepare_before_mark_preparation_failed: RefCell<bool>,
     discord_claim_times: RefCell<Vec<(DateTime<Utc>, DateTime<Utc>)>>,
     push_notified: RefCell<HashSet<(String, String)>>,
+    digest_notified: RefCell<HashSet<String>>,
+    digest_recipient_counts: RefCell<Vec<(String, usize)>>,
 }
 
 impl Default for FakeRepo {
@@ -57,6 +61,8 @@ impl Default for FakeRepo {
             prepare_before_mark_preparation_failed: RefCell::new(false),
             discord_claim_times: RefCell::new(Vec::new()),
             push_notified: RefCell::new(HashSet::new()),
+            digest_notified: RefCell::new(HashSet::new()),
+            digest_recipient_counts: RefCell::new(Vec::new()),
         }
     }
 }
@@ -84,6 +90,10 @@ impl FakeRepo {
             run.clone(),
         );
         run
+    }
+
+    fn digest_claimed(&self, period_key: &str) -> bool {
+        self.digest_notified.borrow().contains(period_key)
     }
 }
 
@@ -526,6 +536,37 @@ impl AwardRepository for FakeRepo {
             .insert((slug.to_string(), key.to_string())))
     }
 
+    async fn claim_digest_notification(
+        &self,
+        period_key: &str,
+        _now: DateTime<Utc>,
+        recipient_count: usize,
+    ) -> Result<bool, AppError> {
+        let claimed = self
+            .digest_notified
+            .borrow_mut()
+            .insert(period_key.to_string());
+        if claimed {
+            self.digest_recipient_counts
+                .borrow_mut()
+                .push((period_key.to_string(), recipient_count));
+        }
+        Ok(claimed)
+    }
+
+    async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
+        Ok(self.digest_notified.borrow().contains(period_key))
+    }
+
+    async fn release_digest_notification(
+        &self,
+        period_key: &str,
+        _claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError> {
+        self.digest_notified.borrow_mut().remove(period_key);
+        Ok(())
+    }
+
     async fn release_push_notification(
         &self,
         slug: &str,
@@ -695,6 +736,44 @@ impl CampaignClient for FakeCampaignClient {
     }
 }
 
+#[derive(Default)]
+struct FakeStatsClient {
+    fail: bool,
+    entries: Vec<CreatorPeriodStats>,
+    calls: RefCell<Vec<String>>,
+}
+
+#[async_trait(?Send)]
+impl CreatorPeriodStatsClient for FakeStatsClient {
+    async fn stats_page(
+        &self,
+        period_key: &str,
+        _limit: usize,
+        _after: &str,
+    ) -> Result<CreatorPeriodStatsResponse, AppError> {
+        self.calls.borrow_mut().push(period_key.to_string());
+        if self.fail {
+            return Err(AppError::Api("stats unavailable".into()));
+        }
+        Ok(CreatorPeriodStatsResponse {
+            entries: self.entries.clone(),
+            next_after: None,
+        })
+    }
+}
+
+fn creator_stats(pubkey_seed: char, views: i64) -> CreatorPeriodStats {
+    CreatorPeriodStats {
+        pubkey: std::iter::repeat(pubkey_seed).take(64).collect(),
+        views,
+        unique_viewers: views,
+        loops: views as f64,
+        reactions: 1,
+        comments: 0,
+        reposts: 0,
+    }
+}
+
 struct InFlightReclaimDiscord<'a> {
     repo: &'a FakeRepo,
     claim_time: DateTime<Utc>,
@@ -737,6 +816,7 @@ fn config() -> AppConfig {
         engagement_api_base_url: None,
         engagement_access_client_id: None,
         engagement_access_client_secret: None,
+        digest_enabled: false,
     }
 }
 
@@ -746,6 +826,13 @@ fn config_with_engagement() -> AppConfig {
         engagement_access_client_id: Some("access-id".into()),
         engagement_access_client_secret: Some("access-secret".into()),
         ..config()
+    }
+}
+
+fn config_with_digest() -> AppConfig {
+    AppConfig {
+        digest_enabled: true,
+        ..config_with_engagement()
     }
 }
 
@@ -880,6 +967,32 @@ async fn execute_with_claim_time(
     publisher: &FakePublisher,
     discord: &FakeDiscord,
 ) -> Result<TickOutcome, AppError> {
+    execute_with_claim_time_and_stats(
+        tick_started_at,
+        claim_time,
+        config,
+        campaigns,
+        repo,
+        candidates,
+        publisher,
+        discord,
+        &FakeStatsClient::default(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_with_claim_time_and_stats(
+    tick_started_at: DateTime<Utc>,
+    claim_time: DateTime<Utc>,
+    config: &AppConfig,
+    campaigns: &FakeCampaignClient,
+    repo: &FakeRepo,
+    candidates: &FakeCandidates,
+    publisher: &FakePublisher,
+    discord: &FakeDiscord,
+    stats: &FakeStatsClient,
+) -> Result<TickOutcome, AppError> {
     run_award_tick_with_clock(
         tick_started_at,
         &FakeClock(claim_time),
@@ -889,6 +1002,7 @@ async fn execute_with_claim_time(
         publisher,
         discord,
         campaigns,
+        stats,
     )
     .await
 }
@@ -1762,6 +1876,7 @@ fn webhook_timeout_finishes_before_the_discord_lease_can_be_reclaimed() {
             &publisher,
             &discord,
             &FakeCampaignClient::default(),
+            &FakeStatsClient::default(),
         )
         .await
         .unwrap();
@@ -2365,6 +2480,217 @@ fn no_campaigns_without_a_configured_engagement_url() {
         .await
         .expect("tick");
 
+        assert!(campaigns.created.borrow().is_empty());
+    });
+}
+
+#[test]
+fn a_failed_stats_fetch_leaves_the_day_unclaimed() {
+    // Review Focus 4: recoverability, not just non-truncation.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            fail: true,
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick");
+
+        assert!(!repo.digest_claimed("2026-04-14"));
+    });
+}
+
+#[test]
+fn the_digest_is_sent_once_and_later_ticks_do_not_walk_the_stats_endpoint_again() {
+    // The tick is hourly and every tick of a day sees the same closed day, so
+    // a claim checked only after the walk costs 23 full walks per digest.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12), creator_stats('d', 4)],
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("first tick");
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("second tick");
+
+        let created = campaigns.created.borrow();
+        let digests: Vec<&AutomatedCampaign> = created
+            .iter()
+            .filter(|campaign| campaign.automation_key.starts_with("creator-digest-"))
+            .collect();
+        assert_eq!(digests.len(), 1);
+        assert_eq!(digests[0].automation_key, "creator-digest-2026-04-14");
+        assert_eq!(digests[0].personalized_recipients.len(), 2);
+        assert_eq!(
+            *repo.digest_recipient_counts.borrow(),
+            vec![("2026-04-14".to_string(), 2)],
+            "the claim records the day's audience size once"
+        );
+        let expires_at: DateTime<Utc> = digests[0].expires_at.parse().expect("expires_at");
+        assert!(
+            expires_at > tick(),
+            "the digest must not be expired when it is created"
+        );
+        assert_eq!(
+            stats.calls.borrow().len(),
+            1,
+            "a sent digest must not walk the stats endpoint again"
+        );
+    });
+}
+
+#[test]
+fn a_failed_digest_campaign_releases_the_day_and_a_later_tick_sends_it() {
+    // Same recovery the Diviner push has: the claim must not burn the day on
+    // one engagement outage. The automation key is per day, so a retry after
+    // an ambiguous failure cannot create a second campaign.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::failing();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12)],
+            ..Default::default()
+        };
+        let config = config_with_digest();
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick during outage");
+        assert!(!repo.digest_claimed("2026-04-14"));
+
+        *campaigns.failure.borrow_mut() = false;
+        let later = tick() + chrono::Duration::hours(1);
+        execute_with_claim_time_and_stats(
+            later,
+            later,
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick after recovery");
+
+        let created = campaigns.created.borrow();
+        let digests: Vec<&AutomatedCampaign> = created
+            .iter()
+            .filter(|campaign| campaign.automation_key.starts_with("creator-digest-"))
+            .collect();
+        assert_eq!(digests.len(), 1);
+        assert!(repo.digest_claimed("2026-04-14"));
+    });
+}
+
+#[test]
+fn no_digest_without_engagement_access_credentials() {
+    // Without credentials the campaign client never sends, so walking the
+    // stats and claiming the day would record a digest nobody received.
+    block_on(async {
+        let repo = FakeRepo::default();
+        let candidates = FakeCandidates {
+            candidates: vec![candidate(FIRST, "winner", 1)],
+            ..Default::default()
+        };
+        let publisher = FakePublisher::new(repo.operations.clone());
+        let discord = FakeDiscord::default();
+        let campaigns = FakeCampaignClient::default();
+        let stats = FakeStatsClient {
+            entries: vec![creator_stats('c', 12)],
+            ..Default::default()
+        };
+        let config = AppConfig {
+            engagement_access_client_secret: None,
+            ..config_with_digest()
+        };
+
+        execute_with_claim_time_and_stats(
+            tick(),
+            tick(),
+            &config,
+            &campaigns,
+            &repo,
+            &candidates,
+            &publisher,
+            &discord,
+            &stats,
+        )
+        .await
+        .expect("tick");
+
+        assert!(stats.calls.borrow().is_empty());
+        assert!(!repo.digest_claimed("2026-04-14"));
         assert!(campaigns.created.borrow().is_empty());
     });
 }

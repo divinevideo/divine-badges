@@ -93,6 +93,27 @@ pub trait AwardRepository {
         period_key: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AppError>;
+    /// Claim the one-shot digest for a UTC day, recording how many creators
+    /// it goes to. True only on the tick that first claims it.
+    async fn claim_digest_notification(
+        &self,
+        period_key: &str,
+        now: DateTime<Utc>,
+        recipient_count: usize,
+    ) -> Result<bool, AppError>;
+    /// Whether the UTC day's digest has already been sent.
+    ///
+    /// The claim above is what makes the send once-only. This read exists so
+    /// the later ticks of the same day can skip the stats walk instead of
+    /// paying for it and then discarding the result.
+    async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError>;
+    /// Give back a digest claim whose campaign was not created, so a later
+    /// tick of the same day can send it.
+    async fn release_digest_notification(
+        &self,
+        period_key: &str,
+        claimed_at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
     async fn release_push_notification(
         &self,
         award_slug: &str,
@@ -109,6 +130,21 @@ pub trait DivinerCandidatesClient {
         end: DateTime<Utc>,
         candidate_window: usize,
     ) -> Result<Vec<DivinerCandidate>, AppError>;
+}
+
+/// One page of pre-aggregated per-creator stats for a closed UTC period.
+///
+/// `after` is the previous response's `next_after`, or the empty string for
+/// the first page. The endpoint's cursor is an exclusive pubkey keyset, so a
+/// creator inserted mid-walk cannot shift the window.
+#[async_trait(?Send)]
+pub trait CreatorPeriodStatsClient {
+    async fn stats_page(
+        &self,
+        period_key: &str,
+        limit: usize,
+        after: &str,
+    ) -> Result<crate::digest::CreatorPeriodStatsResponse, AppError>;
 }
 
 #[async_trait(?Send)]

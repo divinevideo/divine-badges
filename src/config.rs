@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub engagement_api_base_url: Option<String>,
     pub engagement_access_client_id: Option<String>,
     pub engagement_access_client_secret: Option<String>,
+    pub digest_enabled: bool,
 }
 
 impl AppConfig {
@@ -102,6 +103,14 @@ impl AppConfig {
                 env,
                 "ENGAGEMENT_ACCESS_CLIENT_SECRET",
             ),
+            digest_enabled: optional_binding_string(env, "DIGEST_ENABLED")
+                .map(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "true" | "1" | "yes"
+                    )
+                })
+                .unwrap_or(false),
         })
     }
 }

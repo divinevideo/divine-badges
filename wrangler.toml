@@ -19,6 +19,7 @@ DIVINE_RELAY_URL = "wss://relay.divine.video"
 DIVINE_BADGE_IMAGE_URL = "https://divine.video/og.png"
 DIVINE_CREATOR_BASE_URL = "https://divine.video"
 ENGAGEMENT_API_BASE_URL = ""
+DIGEST_ENABLED = "false"
 
 [[d1_databases]]
 binding = "DB"

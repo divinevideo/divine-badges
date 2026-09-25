@@ -270,6 +270,32 @@ fn claim_push_notification_sql_only_matches_unnotified_completed_runs() {
 }
 
 #[test]
+fn claim_digest_notification_sql_is_idempotent_per_period() {
+    let sql = divine_badges::repository::CLAIM_DIGEST_NOTIFICATION_SQL;
+    assert!(sql.contains("digest_runs"));
+    assert!(sql.contains("notified_at"));
+    assert!(sql.contains("notified_at IS NULL"));
+    assert!(sql.contains("recipient_count = excluded.recipient_count"));
+}
+
+#[test]
+fn digest_already_notified_sql_reads_only_a_claimed_day() {
+    let sql = divine_badges::repository::DIGEST_ALREADY_NOTIFIED_SQL;
+    assert!(sql.contains("SELECT"));
+    assert!(sql.contains("digest_runs"));
+    assert!(sql.contains("period_key = ?1"));
+    assert!(sql.contains("notified_at IS NOT NULL"));
+}
+
+#[test]
+fn release_digest_notification_sql_only_releases_its_own_claim() {
+    let sql = divine_badges::repository::RELEASE_DIGEST_NOTIFICATION_SQL;
+    assert!(sql.contains("UPDATE digest_runs"));
+    assert!(sql.contains("SET notified_at = NULL"));
+    assert!(sql.contains("notified_at = ?2"));
+}
+
+#[test]
 fn release_push_notification_sql_only_releases_its_own_claim() {
     let sql = divine_badges::repository::RELEASE_PUSH_NOTIFICATION_SQL;
     assert!(sql.contains("SET push_notified_at = NULL"));
