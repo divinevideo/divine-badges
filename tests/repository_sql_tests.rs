@@ -275,6 +275,7 @@ fn claim_digest_notification_sql_is_idempotent_per_period() {
     assert!(sql.contains("digest_runs"));
     assert!(sql.contains("notified_at"));
     assert!(sql.contains("notified_at IS NULL"));
+    assert!(sql.contains("recipient_count = excluded.recipient_count"));
 }
 
 #[test]

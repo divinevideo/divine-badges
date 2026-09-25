@@ -44,6 +44,7 @@ struct FakeRepo {
     discord_claim_times: RefCell<Vec<(DateTime<Utc>, DateTime<Utc>)>>,
     push_notified: RefCell<HashSet<(String, String)>>,
     digest_notified: RefCell<HashSet<String>>,
+    digest_recipient_counts: RefCell<Vec<(String, usize)>>,
 }
 
 impl Default for FakeRepo {
@@ -61,6 +62,7 @@ impl Default for FakeRepo {
             discord_claim_times: RefCell::new(Vec::new()),
             push_notified: RefCell::new(HashSet::new()),
             digest_notified: RefCell::new(HashSet::new()),
+            digest_recipient_counts: RefCell::new(Vec::new()),
         }
     }
 }
@@ -538,11 +540,18 @@ impl AwardRepository for FakeRepo {
         &self,
         period_key: &str,
         _now: DateTime<Utc>,
+        recipient_count: usize,
     ) -> Result<bool, AppError> {
-        Ok(self
+        let claimed = self
             .digest_notified
             .borrow_mut()
-            .insert(period_key.to_string()))
+            .insert(period_key.to_string());
+        if claimed {
+            self.digest_recipient_counts
+                .borrow_mut()
+                .push((period_key.to_string(), recipient_count));
+        }
+        Ok(claimed)
     }
 
     async fn digest_already_notified(&self, period_key: &str) -> Result<bool, AppError> {
@@ -2565,6 +2574,11 @@ fn the_digest_is_sent_once_and_later_ticks_do_not_walk_the_stats_endpoint_again(
         assert_eq!(digests.len(), 1);
         assert_eq!(digests[0].automation_key, "creator-digest-2026-04-14");
         assert_eq!(digests[0].personalized_recipients.len(), 2);
+        assert_eq!(
+            *repo.digest_recipient_counts.borrow(),
+            vec![("2026-04-14".to_string(), 2)],
+            "the claim records the day's audience size once"
+        );
         let expires_at: DateTime<Utc> = digests[0].expires_at.parse().expect("expires_at");
         assert!(
             expires_at > tick(),

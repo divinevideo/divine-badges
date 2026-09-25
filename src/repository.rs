@@ -90,11 +90,13 @@ pub const CLAIM_PUSH_NOTIFICATION_SQL: &str = "UPDATE award_runs \
 ///
 /// The upsert creates the row on first use and the `notified_at IS NULL`
 /// predicate makes the claim idempotent: a second tick over the same day
-/// changes no rows and claims nothing.
+/// changes no rows and claims nothing. `recipient_count` records how close
+/// the day came to the 5000-creator audience cap.
 pub const CLAIM_DIGEST_NOTIFICATION_SQL: &str =
-    "INSERT INTO digest_runs (period_key, notified_at) \
-     VALUES (?1, ?2) \
-     ON CONFLICT(period_key) DO UPDATE SET notified_at = excluded.notified_at \
+    "INSERT INTO digest_runs (period_key, notified_at, recipient_count) \
+     VALUES (?1, ?2, ?3) \
+     ON CONFLICT(period_key) DO UPDATE SET notified_at = excluded.notified_at, \
+       recipient_count = excluded.recipient_count \
      WHERE digest_runs.notified_at IS NULL";
 
 /// Whether the UTC day's digest has already been sent.
@@ -705,6 +707,7 @@ mod d1_repository {
             &self,
             period_key: &str,
             now: chrono::DateTime<chrono::Utc>,
+            recipient_count: usize,
         ) -> Result<bool, AppError> {
             let result = self
                 .db
@@ -712,6 +715,7 @@ mod d1_repository {
                 .bind(&[
                     JsValue::from_str(period_key),
                     JsValue::from_str(&now.to_rfc3339()),
+                    JsValue::from_f64(recipient_count as f64),
                 ])
                 .map_err(repository_error)?
                 .run()

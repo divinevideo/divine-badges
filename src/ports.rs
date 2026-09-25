@@ -93,12 +93,13 @@ pub trait AwardRepository {
         period_key: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AppError>;
-    /// Claim the one-shot digest for a UTC day. True only on the tick that
-    /// first claims it.
+    /// Claim the one-shot digest for a UTC day, recording how many creators
+    /// it goes to. True only on the tick that first claims it.
     async fn claim_digest_notification(
         &self,
         period_key: &str,
         now: DateTime<Utc>,
+        recipient_count: usize,
     ) -> Result<bool, AppError>;
     /// Whether the UTC day's digest has already been sent.
     ///

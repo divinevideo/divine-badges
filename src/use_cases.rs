@@ -590,9 +590,14 @@ async fn run_creator_digest<R, S, M, C>(
         }
     };
 
+    let campaign = digest_campaign(period_key, all_stats);
+    let recipient_count = campaign
+        .as_ref()
+        .map_or(0, |campaign| campaign.personalized_recipients.len());
+
     let claimed_at = clock.now();
     match repository
-        .claim_digest_notification(period_key, claimed_at)
+        .claim_digest_notification(period_key, claimed_at, recipient_count)
         .await
     {
         Ok(true) => {}
@@ -603,7 +608,7 @@ async fn run_creator_digest<R, S, M, C>(
         }
     }
 
-    let Some(campaign) = digest_campaign(period_key, all_stats) else {
+    let Some(campaign) = campaign else {
         return;
     };
     if let Err(err) = campaigns.create_campaign(&campaign).await {
