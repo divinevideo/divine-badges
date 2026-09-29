@@ -99,7 +99,7 @@ The Worker reads each binding as either a var or a secret, so the five vars abov
 
 ## Deployment
 
-Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then `wrangler deploy`. It can also be run by hand from `main` with `workflow_dispatch`.
+Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then `wrangler deploy`. It can also be run by hand from `main` with `workflow_dispatch`. A run deploys only if its commit is still the head of `main`, so re-running an old run does not roll production back; use `wrangler rollback` for that.
 
 The workflow does not apply D1 migrations. Before merging a change that adds a migration, apply it to the remote database:
 

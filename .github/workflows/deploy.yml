@@ -59,8 +59,21 @@ jobs:
             echo "::warning::CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not both set; skipping deploy."
           fi
 
+      # A re-run keeps its original commit, so re-running an old run would roll
+      # production back. Only ship the commit that is still the head of main.
+      - name: Check commit is still the head of main
+        id: head
+        run: |
+          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::main is now at ${head:-unknown}, not $GITHUB_SHA; skipping deploy of a stale commit."
+          fi
+
       - name: Deploy Worker
-        if: steps.secrets.outputs.configured == 'true'
+        if: steps.secrets.outputs.configured == 'true' && steps.head.outputs.current == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
