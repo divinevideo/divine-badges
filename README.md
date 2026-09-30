@@ -107,6 +107,8 @@ The workflow does not apply or check D1 migrations. For a change that adds a mig
 npm run d1:migrate:remote
 ```
 
+Until the merge deploys, production still runs the previous Worker against the migrated schema, so a migration applied this way must keep that Worker working: add tables and columns, and leave renames and drops to a later change once no deployed code uses the old shape.
+
 To deploy by hand, dry-run the build, then deploy:
 
 ```bash
