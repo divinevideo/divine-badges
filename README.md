@@ -99,15 +99,22 @@ The Worker reads each binding as either a var or a secret, so the five vars abov
 
 ## Deployment
 
-Apply remote migrations, dry-run the build, then deploy:
+Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then `wrangler deploy`. It can also be run by hand from `main` with `workflow_dispatch`. A run deploys only if its commit is still the head of `main`, so re-running an old run does not roll production back; use `wrangler rollback` for that.
+
+The workflow does not apply or check D1 migrations. For a change that adds a migration, run the command below from the reviewed change branch and confirm it succeeds before merging Worker code that depends on the new schema. If the migration fails, do not merge the dependent code. This keeps production database writes out of the deploy workflow while ensuring the schema is ready before the automatic Worker deploy:
 
 ```bash
 npm run d1:migrate:remote
+```
+
+Until the merge deploys, production still runs the previous Worker against the migrated schema, so a migration applied this way must keep that Worker working: add tables and columns, and leave renames and drops to a later change once no deployed code uses the old shape.
+
+To deploy by hand, dry-run the build, then deploy:
+
+```bash
 npx wrangler deploy --dry-run
 npm run deploy
 ```
-
-`npm run deploy` runs `wrangler deploy` and ships to production at `badges.divine.video`.
 
 ### PR preview deploys
 
