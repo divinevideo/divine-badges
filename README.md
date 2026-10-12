@@ -99,13 +99,16 @@ The Worker reads each binding as either a var or a secret, so the five vars abov
 
 ## Deployment
 
-Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then `wrangler deploy`. It can also be run by hand from `main` with `workflow_dispatch`. A run deploys only if its commit is still the head of `main`, so re-running an old run does not roll production back; use `wrangler rollback` for that.
+Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then checks the remote D1 migration status before `wrangler deploy`. Pending migrations or an unreadable status stop deployment. It can also be run by hand from `main` with `workflow_dispatch`. A run deploys only if its commit is still the head of `main`, so re-running an old run does not roll production back; use `wrangler rollback` for that.
 
-The workflow does not apply or check D1 migrations. For a change that adds a migration, run the command below from the reviewed change branch and confirm it succeeds before merging Worker code that depends on the new schema. If the migration fails, do not merge the dependent code. This keeps production database writes out of the deploy workflow while ensuring the schema is ready before the automatic Worker deploy:
+The workflow only reads D1 migration status and never applies migrations. The deployment token needs D1 read access as well as its Worker deployment permissions. For a change that adds or depends on a migration, run the command below from the reviewed change branch and confirm it succeeds before merging Worker code that depends on the new schema. If the migration fails, do not merge the dependent code. This keeps production database writes out of the deploy workflow while ensuring the schema is ready before the automatic Worker deploy:
 
 ```bash
 npm run d1:migrate:remote
+npx wrangler d1 migrations list divine-badges --remote
 ```
+
+If deployment stopped because migrations were pending, apply and verify them separately, then dispatch the Deploy workflow from `main`. The migration check protects schema compatibility; it does not authorize enabling delivery or substitute for reviewing production configuration.
 
 Until the merge deploys, production still runs the previous Worker against the migrated schema, so a migration applied this way must keep that Worker working: add tables and columns, and leave renames and drops to a later change once no deployed code uses the old shape.
 
