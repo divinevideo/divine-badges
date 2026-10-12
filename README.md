@@ -99,15 +99,25 @@ The Worker reads each binding as either a var or a secret, so the five vars abov
 
 ## Deployment
 
-Apply remote migrations, dry-run the build, then deploy:
+Every push to `main` deploys the Worker to production at `badges.divine.video` (`.github/workflows/deploy.yml`). The workflow runs the native and wasm checks, then checks the remote D1 migration status before `wrangler deploy`. Pending migrations or an unreadable status stop deployment. It can also be run by hand from `main` with `workflow_dispatch`. A run deploys only if its commit is still the head of `main`, so re-running an old run does not roll production back; use `wrangler rollback` for that.
+
+The workflow only reads D1 migration status and never applies migrations. The gate executes only `SELECT name FROM d1_migrations` and compares the applied names with local SQL filenames. Missing migration tables, malformed responses, or missing names block deployment. The deployment token must permit this D1 query as well as Worker deployment; API permission scope is separate from the query being read-only. For a change that adds or depends on a migration, run the command below from the reviewed change branch and confirm it succeeds before merging Worker code that depends on the new schema. If the migration fails, do not merge the dependent code. This keeps production database writes out of the deploy workflow while ensuring the schema is ready before the automatic Worker deploy:
 
 ```bash
 npm run d1:migrate:remote
+node scripts/check-remote-migrations.mjs
+```
+
+If deployment stopped because migrations were pending, apply and verify them separately, then dispatch the Deploy workflow from `main`. The migration check protects schema compatibility; it does not authorize enabling delivery or substitute for reviewing production configuration.
+
+Until the merge deploys, production still runs the previous Worker against the migrated schema, so a migration applied this way must keep that Worker working: add tables and columns, and leave renames and drops to a later change once no deployed code uses the old shape.
+
+To deploy by hand, dry-run the build, then deploy:
+
+```bash
 npx wrangler deploy --dry-run
 npm run deploy
 ```
-
-`npm run deploy` runs `wrangler deploy` and ships to production at `badges.divine.video`.
 
 ### PR preview deploys
 
