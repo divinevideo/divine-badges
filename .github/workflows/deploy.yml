@@ -77,13 +77,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          migration_status="$(npx wrangler d1 migrations list divine-badges --remote)"
-          printf '%s\n' "$migration_status"
-          if ! printf '%s\n' "$migration_status" | grep -Fq 'No migrations to apply!'; then
-            echo "::error::Remote D1 migrations are pending or status could not be verified; apply migrations separately before deploying."
-            exit 1
-          fi
+        run: node scripts/check-remote-migrations.mjs
 
       - name: Deploy Worker
         if: steps.secrets.outputs.configured == 'true' && steps.head.outputs.current == 'true'
