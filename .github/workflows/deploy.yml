@@ -65,8 +65,14 @@ jobs:
       # production back. Only ship the commit that is still the head of main.
       - name: Check commit is still the head of main
         id: head
+        shell: bash
         run: |
-          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          head="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+          if [[ ! "$head" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not establish the current main commit."
+            exit 1
+          fi
+          echo "observed=$head" >> "$GITHUB_OUTPUT"
           if [ "$head" = "$GITHUB_SHA" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
@@ -101,6 +107,8 @@ jobs:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/badges-deploy-output.jsonl
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           HEAD_CURRENT: ${{ steps.head.outputs.current }}
+          HEAD_OUTCOME: ${{ steps.head.outcome }}
+          OBSERVED_MAIN_SHA: ${{ steps.head.outputs.observed }}
           NATIVE_OUTCOME: ${{ steps.native.outcome }}
           WASM_OUTCOME: ${{ steps.wasm.outcome }}
           SECRETS_OUTCOME: ${{ steps.secrets.outcome }}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -74,7 +74,9 @@ test('failed and superseded runs retain bounded metadata without contacting prod
       [{ DEPLOY_OUTCOME: 'failure' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'skipped' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'success', WRANGLER_OUTPUT_FILE_PATH: join(directory, 'missing') }, 'failed', 1],
-      [{ DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', NATIVE_OUTCOME: 'success', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' }, 'superseded', 0],
+      [{ DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', HEAD_OUTCOME: 'success', OBSERVED_MAIN_SHA: 'c'.repeat(40), NATIVE_OUTCOME: 'success', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' }, 'superseded', 0],
+      [{ DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', HEAD_OUTCOME: 'failure', NATIVE_OUTCOME: 'success', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' }, 'failed', 1],
+      [{ DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', HEAD_OUTCOME: 'success', OBSERVED_MAIN_SHA: sourceSha, NATIVE_OUTCOME: 'success', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', NATIVE_OUTCOME: 'failure', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' }, 'failed', 1],
     ]) {
       const result = spawnSync(process.execPath, [script], { cwd: directory, encoding: 'utf8', env: {
@@ -89,6 +91,40 @@ test('failed and superseded runs retain bounded metadata without contacting prod
       assert.equal(receipt.worker, 'divine-badges');
       assert.equal('token' in receipt, false);
       assert.equal('accountId' in receipt, false);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('main-head lookup fails closed on failed, empty or malformed remote responses', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const step = workflow.match(/      - name: Check commit is still the head of main\n([\s\S]*?)(?=\n      - name:)/)[1];
+  assert.match(step, /shell: bash/);
+  const script = step.split('run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
+  const directory = mkdtempSync(join(tmpdir(), 'badges-head-test-'));
+  try {
+    writeFileSync(join(directory, 'git'), `#!/usr/bin/env node
+if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(['ls-remote', '--exit-code', 'origin', 'refs/heads/main'])) process.exit(90);
+process.stdout.write(process.env.MOCK_HEAD_OUTPUT);
+process.exit(Number(process.env.MOCK_HEAD_EXIT));
+`, { mode: 0o755 });
+    for (const [output, exit, expected] of [
+      ['', 1, null], ['', 0, null], ['not-a-sha\\trefs/heads/main\n', 0, null],
+      [`${sourceSha}\trefs/heads/main\n`, 1, null],
+      [`${sourceSha}\trefs/heads/main\n`, 0, 'true'],
+      [`${'c'.repeat(40)}\trefs/heads/main\n`, 0, 'false'],
+    ]) {
+      const outputs = join(directory, 'outputs');
+      writeFileSync(outputs, '');
+      const run = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
+        encoding: 'utf8', env: { PATH: `${directory}:${process.env.PATH}`, MOCK_HEAD_OUTPUT: output,
+          MOCK_HEAD_EXIT: String(exit), GITHUB_SHA: sourceSha, GITHUB_OUTPUT: outputs },
+      });
+      assert.equal(run.status === 0, expected !== null, run.stderr);
+      const written = readFileSync(outputs, 'utf8');
+      if (expected === null) assert.doesNotMatch(written, /current=/);
+      else assert.match(written, new RegExp(`current=${expected}`));
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });

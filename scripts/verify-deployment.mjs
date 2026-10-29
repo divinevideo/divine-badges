@@ -77,9 +77,12 @@ export async function recordRelease(env = process.env) {
         accountId: env.CLOUDFLARE_ACCOUNT_ID, token: env.CLOUDFLARE_API_TOKEN,
       }));
       receipt.result = 'verified';
-    } else if (env.HEAD_CURRENT === 'false' && env.NATIVE_OUTCOME === 'success' &&
+    } else if (env.HEAD_CURRENT === 'false' && env.HEAD_OUTCOME === 'success' &&
+        /^[a-f0-9]{40}$/.test(env.OBSERVED_MAIN_SHA) && env.OBSERVED_MAIN_SHA !== env.GITHUB_SHA &&
+        env.NATIVE_OUTCOME === 'success' &&
         env.WASM_OUTCOME === 'success' && env.SECRETS_OUTCOME === 'success') {
       receipt.result = 'superseded';
+      receipt.observed_main_sha = env.OBSERVED_MAIN_SHA;
     } else {
       throw new Error('Deployment did not complete; inspect the preceding failed or cancelled step.');
     }
