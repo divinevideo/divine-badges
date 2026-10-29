@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -38,9 +38,11 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
 
       - name: Run native checks
+        id: native
         run: npm run check
 
       - name: Run wasm check
+        id: wasm
         run: npm run check:wasm
 
       - name: Install worker-build
@@ -55,8 +57,8 @@ jobs:
           if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not both set; skipping deploy."
+            echo "::error::CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required for production deployment."
+            exit 1
           fi
 
       # A re-run keeps its original commit, so re-running an old run would roll
@@ -80,9 +82,35 @@ jobs:
         run: node scripts/check-remote-migrations.mjs
 
       - name: Deploy Worker
+        id: deploy
         if: steps.secrets.outputs.configured == 'true' && steps.head.outputs.current == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/badges-deploy-output.jsonl
         with:
+          wranglerVersion: '4.81.1'
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --tag ${{ github.sha }} --message "main ${{ github.sha }}"
+
+      - name: Verify and record production release
+        if: always()
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/badges-deploy-output.jsonl
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          HEAD_CURRENT: ${{ steps.head.outputs.current }}
+          NATIVE_OUTCOME: ${{ steps.native.outcome }}
+          WASM_OUTCOME: ${{ steps.wasm.outcome }}
+          SECRETS_OUTCOME: ${{ steps.secrets.outcome }}
+        run: node scripts/verify-deployment.mjs
+
+      - name: Upload production release receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-release-${{ github.sha }}-${{ github.run_attempt }}
+          path: deployment-result.json
+          if-no-files-found: error
+          retention-days: 90
