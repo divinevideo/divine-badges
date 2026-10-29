@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { deployedVersion, verifyDeployment } from '../scripts/verify-deployment.mjs';
+import { deployedVersion, recordRelease, verifyDeployment } from '../scripts/verify-deployment.mjs';
 
 const versionId = '11111111-1111-4111-8111-111111111111';
 const deploymentId = '22222222-2222-4222-8222-222222222222';
@@ -99,6 +99,36 @@ test('failed and superseded runs retain bounded metadata without contacting prod
       assert.equal('accountId' in receipt, false);
     }
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a verified release records the active version and deployment', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'badges-verified-test-'));
+  const cwd = process.cwd();
+  const originalFetch = globalThis.fetch;
+  const originalExitCode = process.exitCode;
+  try {
+    const outputFile = join(directory, 'wrangler-output.jsonl');
+    writeFileSync(outputFile, `${JSON.stringify({ type: 'wrangler-session', version: 1 })}\n${JSON.stringify(output)}\n`);
+    globalThis.fetch = mock().fetchImpl;
+    process.chdir(directory);
+    await recordRelease({
+      GITHUB_SHA: sourceSha, GITHUB_REPOSITORY: 'example/synthetic', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
+      DEPLOY_OUTCOME: 'success', WRANGLER_OUTPUT_FILE_PATH: outputFile,
+      CLOUDFLARE_ACCOUNT_ID: inputs.accountId, CLOUDFLARE_API_TOKEN: inputs.token,
+    });
+    const receipt = JSON.parse(readFileSync(join(directory, 'deployment-result.json'), 'utf8'));
+    assert.equal(receipt.result, 'verified');
+    assert.equal(receipt.version_id, versionId);
+    assert.equal(receipt.deployment_id, deploymentId);
+    assert.equal(receipt.health, 'passed');
+    assert.equal('error' in receipt, false);
+    assert.equal(process.exitCode, originalExitCode);
+  } finally {
+    process.chdir(cwd);
+    globalThis.fetch = originalFetch;
+    process.exitCode = originalExitCode;
     rmSync(directory, { recursive: true, force: true });
   }
 });
