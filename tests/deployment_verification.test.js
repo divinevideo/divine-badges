@@ -70,7 +70,13 @@ test('failed and superseded runs retain bounded metadata without contacting prod
   const directory = mkdtempSync(join(tmpdir(), 'badges-release-test-'));
   try {
     const script = new URL('../scripts/verify-deployment.mjs', import.meta.url).pathname;
+    const superseded = { DEPLOY_OUTCOME: 'skipped', HEAD_CURRENT: 'false', HEAD_OUTCOME: 'success',
+      OBSERVED_MAIN_SHA: 'c'.repeat(40), NATIVE_OUTCOME: 'success', WASM_OUTCOME: 'success', SECRETS_OUTCOME: 'success' };
     for (const [env, expected, exit] of [
+      // Each condition alone must keep a run from being recorded as superseded.
+      ...['HEAD_OUTCOME', 'NATIVE_OUTCOME', 'WASM_OUTCOME', 'SECRETS_OUTCOME'].map(key =>
+        [{ ...superseded, [key]: 'failure' }, 'failed', 1]),
+      [{ ...superseded, HEAD_CURRENT: 'true' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'failure' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'skipped' }, 'failed', 1],
       [{ DEPLOY_OUTCOME: 'success', WRANGLER_OUTPUT_FILE_PATH: join(directory, 'missing') }, 'failed', 1],
