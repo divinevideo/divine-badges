@@ -94,7 +94,7 @@ jobs:
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/badges-deploy-output.jsonl
         with:
-          wranglerVersion: '4.81.1'
+          wranglerVersion: '4.160.1'
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --tag ${{ github.sha }} --message "main ${{ github.sha }}"

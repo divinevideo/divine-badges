@@ -174,7 +174,9 @@ test('workflow verifies after deploy and retains receipts even on failures witho
   assert.match(workflow, /if: github.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /group: deploy-main\n  cancel-in-progress: false/);
   assert.match(workflow, /command: deploy --tag \$\{\{ github.sha \}\}/);
-  assert.match(workflow, /wranglerVersion: '4\.81\.1'/);
+  const lockedWrangler = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')).packages['node_modules/wrangler'].version;
+  assert.equal(lockedWrangler, '4.160.1');
+  assert.match(workflow, /wranglerVersion: '4\.160\.1'/);
   assert.match(workflow, /name: Verify and record production release\n        if: always\(\)/);
   assert.match(workflow, /DEPLOY_OUTCOME: \$\{\{ steps.deploy.outcome \}\}/);
   assert.match(workflow, /name: Upload production release receipt\n        if: always\(\)/);
