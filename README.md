@@ -32,7 +32,7 @@ The award-tick logic itself (`src/use_cases.rs`) is written against port traits 
 
 ## Getting started
 
-Prerequisites: a recent Rust toolchain, Node with `npm`, and the `worker-build` binary.
+Prerequisites: a recent Rust toolchain, Node.js 22.12 or newer with `npm` (the minimum the locked Wrangler requires), and the `worker-build` binary.
 
 ```bash
 npm install
