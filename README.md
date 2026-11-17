@@ -32,7 +32,7 @@ The award-tick logic itself (`src/use_cases.rs`) is written against port traits 
 
 ## Getting started
 
-Prerequisites: a recent Rust toolchain, Node with `npm`, and the `worker-build` binary.
+Prerequisites: a recent Rust toolchain, Node.js 22.12 or newer with `npm` (the minimum the locked Wrangler requires), and the `worker-build` binary.
 
 ```bash
 npm install
@@ -103,7 +103,7 @@ Every push to `main` deploys the Worker to production at `badges.divine.video` (
 
 The existing production target is Worker `divine-badges`, route `badges.divine.video/*`, and the D1 binding in `wrangler.toml`. The production deployment run for PR #31 confirmed this Worker and route; the public `GET /healthz` returns `ok` without issuing badges or running scheduled jobs. This workflow reuses these resources and secrets; it does not create a replacement account, environment, database or route. No GitHub deployment environment is currently configured. If maintainers add environment protection rules, the deployment job must be explicitly attached to that existing environment before relying on them; the workflow does not silently create an unprotected environment.
 
-Required repository secrets are `CLOUDFLARE_ACCOUNT_ID` (the existing serving account) and `CLOUDFLARE_API_TOKEN`. Restrict the token to that account and the `divine.video` zone: Account **Workers Scripts:Edit** (upload/activate and read Worker versions/deployments), Account **D1:Read** (the SELECT-only migration gate), and Zone **Workers Routes:Edit** / **Zone:Read** (the configured route). Confirm the intended serving account, route and D1 binding when provisioning or changing credentials; never move traffic or enable features as part of that setup. Runtime secrets are reused, never uploaded by this workflow. Actions are pinned to commits and production Wrangler is pinned to 4.81.1; review upgrades together with its deployment-output schema.
+Required repository secrets are `CLOUDFLARE_ACCOUNT_ID` (the existing serving account) and `CLOUDFLARE_API_TOKEN`. Restrict the token to that account and the `divine.video` zone: Account **Workers Scripts:Edit** (upload/activate and read Worker versions/deployments), Account **D1:Read** (the SELECT-only migration gate), and Zone **Workers Routes:Edit** / **Zone:Read** (the configured route). Confirm the intended serving account, route and D1 binding when provisioning or changing credentials; never move traffic or enable features as part of that setup. Runtime secrets are reused, never uploaded by this workflow. Actions are pinned to commits and production Wrangler is pinned to 4.160.1; review upgrades together with its deployment-output schema.
 
 Each deployment tags its provider version with the full checked source SHA. After deployment, `scripts/verify-deployment.mjs` reads Wrangler's structured receipt, checks the provider's latest deployment serves that exact version at 100%, checks its source tag, performs only the public `GET https://badges.divine.video/healthz`, and rechecks that activation did not change during the health check. A failed deploy or unverifiable version/health fails the job; it does not automatically roll back or send test badge traffic. Health confirms availability, not every application dependency, and the observation can change after the run finishes.
 
